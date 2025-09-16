@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Новая заявка с сайта Molmash</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.5;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            color: #2a5885;
+            border-bottom: 2px solid #2a5885;
+            padding-bottom: 10px;
+        }
+        .info {
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #777;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h3>Поступила новая заявка с сайта Molmash</h3>
+    </div>
+
+    <div class="info">
+        <p><strong>🔹 Основная информация:</strong></p>
+        <ul>
+            <li><strong>Имя:</strong> {{ name }}</li>
+            <li><strong>Почта:</strong> {{ email }}</li>
+            <li><strong>Телефон:</strong> {{ phone }}</li>
+            <li><strong>Время заявки:</strong> {{ request_time }}</li>
+        </ul>
+    </div>
+
+    <div class="footer">
+        <p>Автоматическое уведомление системы<br>
+        Molmash<br>
+        </p>
+    </div>
+</body>
+</html>

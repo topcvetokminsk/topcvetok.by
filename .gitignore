@@ -1,0 +1,21 @@
+*.pyc
+__pycache
+.pytest_cache
+.DS_Store
+.idea
+.data
+/venv/
+app/project/static
+build/dev/.env
+*.log
+*.log.*
+.vscode
+*dev_logs*
+
+# coverage
+htmlcov/
+.coverage
+.coverage*
+coverage.xml
+*.cover
+/app/flower*

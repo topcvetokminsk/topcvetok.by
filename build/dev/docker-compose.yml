@@ -1,0 +1,67 @@
+version: "3.8"
+
+services:
+  redis:
+    image: redis:alpine
+    container_name: back_redis
+    volumes:
+      - "../../.data/redis:/data"
+    expose:
+      - 6379
+    environment:
+      - REDIS_REPLICATION_MODE=master
+    networks:
+      - default
+
+  celery:
+    build:
+      context: ../../
+      dockerfile: build/dev/Dockerfile
+    command: watchmedo auto-restart --patterns="*.py" -R -- celery -A project worker --autoscale 10,0 --loglevel INFO -P solo
+    container_name: celery
+    env_file:
+      - .env
+    volumes:
+      - "../../app:/app"
+      - "../../.data/celery:/celery"
+    depends_on:
+      - redis
+    networks:
+      - default
+
+  celery_beat:
+    build:
+      context: ../../
+      dockerfile: build/dev/Dockerfile
+    command: celery -A project beat --schedule=/celery/celerybeat-schedule --loglevel INFO
+    container_name: celery_beat
+    env_file:
+      - .env
+    volumes:
+      - "../../app:/app"
+      - "../../.data/celery:/celery"
+    depends_on:
+      - redis
+    networks:
+      - default
+
+  web:
+    tty: true
+    build:
+      context: ../../
+      dockerfile: build/dev/Dockerfile
+    command: python3 manage.py runserver 0.0.0.0:8000
+    container_name: backend
+    volumes:
+      - "../../app:/app"
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    networks:
+      - default
+    restart: on-failure
+
+networks:
+  default:
+    name: cvetok_network
