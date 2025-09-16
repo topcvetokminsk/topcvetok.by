@@ -109,12 +109,6 @@ class ServiceAdmin(admin.ModelAdmin):
     is_free_display.short_description = "Бесплатная"
 
 
-@admin.register(models.Cart)
-class CartAdmin(admin.ModelAdmin):
-    list_display = ['id', 'session_key', 'total_items', 'total_amount', 'created_at']
-    search_fields = ['session_key', 'ip_address']
-    list_filter = ['created_at']
-    readonly_fields = ['id', 'created_at', 'updated_at']
 
 
 @admin.register(models.Order)

@@ -154,6 +154,12 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
 
 
 class DeliveryMethodSerializer(serializers.ModelSerializer):
+    delivery_type_display = serializers.CharField(source='get_delivery_type_display', read_only=True)
+    delivery_info = serializers.SerializerMethodField()
+    
+    def get_delivery_info(self, obj):
+        return obj.get_delivery_info()
+    
     class Meta:
         model = models.DeliveryMethod
         fields = "__all__"
@@ -188,56 +194,10 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class OrderCreateSerializer(serializers.ModelSerializer):
-    """Сериализатор для создания заказов с обязательным согласием"""
-    
-    def validate_personal_data_consent(self, value):
-        """Валидация согласия на обработку персональных данных"""
-        if not value:
-            raise serializers.ValidationError(
-                "Необходимо дать согласие на обработку персональных данных для создания заказа."
-            )
-        return value
-    
-    def validate(self, attrs):
-        """Общая валидация заказа"""
-        # Проверяем, что согласие дано
-        if not attrs.get('personal_data_consent'):
-            raise serializers.ValidationError({
-                'personal_data_consent': 'Необходимо дать согласие на обработку персональных данных.'
-            })
-        
-        return attrs
-    
-    class Meta:
-        model = models.Order
-        fields = [
-            'delivery_address', 'delivery_date', 'delivery_notes',
-            'delivery_method', 'payment_method', 'service',
-            'customer_name', 'customer_phone', 'customer_email',
-            'notes', 'personal_data_consent'
-        ]
-
-
-class CartItemSerializer(serializers.ModelSerializer):
-    """Сериализатор для товара в корзине"""
-    product = ProductSerializer(read_only=True)
-    attributes = AttributeSerializer(many=True, read_only=True)
-    total_price = serializers.ReadOnlyField()
-    price_with_attributes = serializers.ReadOnlyField()
-    
-    class Meta:
-        model = models.CartItem
-        fields = [
-            'id', 'product', 'quantity', 'attributes', 
-            'total_price', 'price_with_attributes', 'created_at', 'updated_at'
-        ]
-
-
-class CartAddItemSerializer(serializers.Serializer):
-    """Сериализатор для добавления товара в корзину"""
+class OrderItemCreateSerializer(serializers.Serializer):
+    """Сериализатор для товара в заказе"""
     product_id = serializers.CharField()
-    quantity = serializers.IntegerField(min_value=1, default=1)
+    quantity = serializers.IntegerField(min_value=1)
     attribute_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -265,27 +225,31 @@ class CartAddItemSerializer(serializers.Serializer):
         return value
 
 
-class CartUpdateItemSerializer(serializers.Serializer):
-    """Сериализатор для обновления товара в корзине"""
-    quantity = serializers.IntegerField(min_value=1)
-    attribute_ids = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        allow_empty=True
-    )
-
-
-class CartCheckoutSerializer(serializers.Serializer):
-    """Сериализатор для оформления заказа из корзины"""
+class OrderCreateSerializer(serializers.Serializer):
+    """Сериализатор для создания заказа с товарами"""
+    # Информация о доставке
     delivery_address = serializers.CharField()
+    delivery_date = serializers.DateTimeField(required=False, allow_null=True)
+    delivery_notes = serializers.CharField(required=False, allow_blank=True)
     delivery_method = serializers.CharField()
+    
+    # Информация об оплате
     payment_method = serializers.CharField()
-    service = serializers.CharField()
+    
+    # Информация о клиенте
     customer_name = serializers.CharField()
     customer_phone = serializers.CharField()
     customer_email = serializers.EmailField(required=False, allow_blank=True)
+    
+    # Дополнительная информация
     notes = serializers.CharField(required=False, allow_blank=True)
+    service = serializers.CharField(required=False, allow_blank=True)
+    
+    # Согласие на обработку персональных данных
     personal_data_consent = serializers.BooleanField()
+    
+    # Товары в заказе
+    items = OrderItemCreateSerializer(many=True)
     
     def validate_personal_data_consent(self, value):
         """Валидация согласия на обработку персональных данных"""
@@ -295,29 +259,39 @@ class CartCheckoutSerializer(serializers.Serializer):
             )
         return value
     
-    def validate(self, attrs):
-        """Общая валидация заказа"""
-        # Проверяем, что согласие дано
-        if not attrs.get('personal_data_consent'):
-            raise serializers.ValidationError({
-                'personal_data_consent': 'Необходимо дать согласие на обработку персональных данных.'
-            })
-        
-        return attrs
-
-
-class CartSerializer(serializers.ModelSerializer):
-    """Сериализатор для корзины"""
-    items = CartItemSerializer(many=True, read_only=True)
-    total_items = serializers.ReadOnlyField()
-    total_amount = serializers.ReadOnlyField()
+    def validate_items(self, value):
+        """Проверяем, что есть товары в заказе"""
+        if not value:
+            raise serializers.ValidationError("Заказ должен содержать хотя бы один товар")
+        return value
     
-    class Meta:
-        model = models.Cart
-        fields = [
-            'id', 'session_key', 'total_items', 'total_amount', 
-            'items', 'created_at', 'updated_at'
-        ]
+    def validate_delivery_method(self, value):
+        """Проверяем способ доставки"""
+        try:
+            delivery_method = models.DeliveryMethod.objects.get(id=value, is_active=True)
+            return value
+        except models.DeliveryMethod.DoesNotExist:
+            raise serializers.ValidationError("Способ доставки не найден или недоступен")
+    
+    def validate_payment_method(self, value):
+        """Проверяем способ оплаты"""
+        try:
+            payment_method = models.PaymentMethod.objects.get(id=value, is_active=True)
+            return value
+        except models.PaymentMethod.DoesNotExist:
+            raise serializers.ValidationError("Способ оплаты не найден или недоступен")
+    
+    def validate_service(self, value):
+        """Проверяем услугу (если указана)"""
+        if value:
+            try:
+                service = models.Service.objects.get(id=value, is_available=True)
+                return value
+            except models.Service.DoesNotExist:
+                raise serializers.ValidationError("Услуга не найдена или недоступна")
+        return value
+
+
 
 
 class ReviewSerializer(serializers.ModelSerializer):

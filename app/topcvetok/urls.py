@@ -34,19 +34,15 @@ urlpatterns = [
     
     # Фильтры
     path("filter-options/", views.FilterOptionsView.as_view(), name="filter-options"),
+    path("enums/", views.EnumsView.as_view(), name="enums"),
     
     # Цены
     path("calculate-price/", views.CalculatePriceView.as_view(), name="calculate-price"),
+    path("calculate-delivery-price/", views.CalculateDeliveryPriceView.as_view(), name="calculate-delivery-price"),
     
     # Заказы
     path("orders/create/", views.OrderCreateView.as_view(), name="order-create"),
     
-    # Корзина
-    path("cart/", views.CartViewSet.as_view({'get': 'list', 'post': 'create'}), name="cart-list"),
-    path("cart/add-item/", views.CartAddItemView.as_view(), name="cart-add-item"),
-    path("cart/clear/", views.CartClearView.as_view(), name="cart-clear"),
-    path("cart/checkout/", views.CartCheckoutView.as_view(), name="cart-checkout"),
-    path("cart/items/<str:item_id>/", views.CartItemView.as_view(), name="cart-item-detail"),
     
     # Админ API
     path("admin/", include(admin_router.urls)),

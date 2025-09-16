@@ -7,6 +7,7 @@ from django.utils import timezone
 from topcvetok.managers import AccountManager
 from topcvetok.utils import generate_uuid, LowercaseEmailField
 from topcvetok.validators import validate_login, validate_name, validate_phone
+from topcvetok.enums import DeliveryType, OrderStatus, PaymentStatus, AttributeFilterType, ReviewRating
 
 from storages.backends.ftp import FTPStorage
 from django.conf import settings
@@ -237,12 +238,8 @@ class AttributeType(models.Model):
     is_filterable = models.BooleanField(default=True, verbose_name="Доступен для фильтрации")
     filter_type = models.CharField(
         max_length=20,
-        choices=[
-            ('choice', 'Выбор из списка'),
-            ('range', 'Диапазон значений'),
-            ('boolean', 'Да/Нет'),
-        ],
-        default='choice',
+        choices=AttributeFilterType.choices,
+        default=AttributeFilterType.CHECKBOX,
         verbose_name="Тип фильтра"
     )
 
@@ -426,15 +423,159 @@ class DeliveryMethod(models.Model):
     )
     name = models.CharField(max_length=100, verbose_name="Название способа доставки")
     description = models.TextField(blank=True, null=True, verbose_name="Описание")
-    price = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Стоимость")
+    
+    # Тип доставки
+    delivery_type = models.CharField(
+        max_length=20, 
+        choices=DeliveryType.choices, 
+        default=DeliveryType.MINSK,
+        verbose_name="Тип доставки"
+    )
+    
+    # Базовая стоимость (для самовывоза или фиксированная)
+    base_price = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=0, 
+        verbose_name="Базовая стоимость",
+        help_text="Для самовывоза или фиксированная стоимость"
+    )
+    
+    # Условия бесплатной доставки
+    free_delivery_min_amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        verbose_name="Минимальная сумма для бесплатной доставки",
+        help_text="Сумма заказа для бесплатной доставки (например, 250)"
+    )
+    
+    # Время работы
+    working_hours_start = models.TimeField(
+        default="08:00",
+        verbose_name="Начало рабочего времени",
+        help_text="Время начала бесплатной доставки"
+    )
+    working_hours_end = models.TimeField(
+        default="22:00", 
+        verbose_name="Конец рабочего времени",
+        help_text="Время окончания бесплатной доставки"
+    )
+    
+    # Стоимость для заказов ниже минимальной суммы
+    low_amount_delivery_price = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=12, 
+        verbose_name="Стоимость доставки для малых заказов",
+        help_text="Доставка при заказе ниже минимальной суммы в рабочее время"
+    )
+    low_amount_early_price = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=24, 
+        verbose_name="Ранняя доставка для малых заказов"
+    )
+    low_amount_late_price = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        default=24, 
+        verbose_name="Поздняя доставка для малых заказов"
+    )
+    late_delivery_min_amount = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        verbose_name="Минимальная сумма для поздней доставки",
+        help_text="Минимальная сумма заказа для поздней доставки (например, 170)"
+    )
+    
+    # Адрес для самовывоза
+    pickup_address = models.TextField(
+        blank=True, 
+        null=True, 
+        verbose_name="Адрес самовывоза"
+    )
+    pickup_hours = models.TextField(
+        blank=True, 
+        null=True, 
+        verbose_name="Часы работы самовывоза"
+    )
     
     is_active = models.BooleanField(default=True, verbose_name="Активен")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    def calculate_delivery_price(self, order_amount, delivery_time=None, is_holiday=False):
+        """Рассчитывает стоимость доставки на основе условий"""
+        # Самовывоз всегда бесплатный
+        if self.delivery_type == DeliveryType.PICKUP:
+            return 0
+        
+        # Определяем время доставки
+        if delivery_time:
+            delivery_hour = delivery_time.hour
+            
+            # Ранняя доставка (до рабочего времени)
+            if delivery_hour < self.working_hours_start.hour:
+                if order_amount >= (self.free_delivery_min_amount or 0):
+                    return self.early_delivery_price
+                else:
+                    return self.low_amount_early_price
+            
+            # Поздняя доставка (после рабочего времени)
+            elif delivery_hour >= self.working_hours_end.hour:
+                if order_amount >= (self.free_delivery_min_amount or 0):
+                    return self.late_delivery_price
+                else:
+                    # Проверяем минимальную сумму для поздней доставки
+                    if (self.late_delivery_min_amount and 
+                        order_amount >= self.late_delivery_min_amount):
+                        return self.low_amount_late_price
+                    else:
+                        return self.low_amount_late_price
+            
+            # Рабочее время
+            else:
+                if order_amount >= (self.free_delivery_min_amount or 0):
+                    return 0  # Бесплатная доставка
+                else:
+                    return self.low_amount_delivery_price
+        
+        # Если время не указано, используем базовую логику
+        if order_amount >= (self.free_delivery_min_amount or 0):
+            return 0  # Бесплатная доставка
+        else:
+            return self.low_amount_delivery_price
+    
+    def get_delivery_info(self):
+        """Возвращает информацию о доставке"""
+        if self.delivery_type == DeliveryType.PICKUP:
+            return {
+                'type': self.delivery_type,
+                'type_display': self.get_delivery_type_display(),
+                'address': self.pickup_address,
+                'hours': self.pickup_hours,
+                'price': 0
+            }
+        else:
+            return {
+                'type': self.delivery_type,
+                'type_display': self.get_delivery_type_display(),
+                'working_hours': f"{self.working_hours_start} - {self.working_hours_end}",
+                'free_delivery_min': float(self.free_delivery_min_amount) if self.free_delivery_min_amount else None,
+                'prices': {
+                    'low_amount': float(self.low_amount_delivery_price),
+                    'low_amount_early': float(self.low_amount_early_price),
+                    'low_amount_late': float(self.low_amount_late_price)
+                }
+            }
+    
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.get_delivery_type_display()})"
     
     class Meta:
         verbose_name = "Способ доставки"
@@ -477,138 +618,13 @@ class Service(models.Model):
         verbose_name_plural = "Услуги"
 
 
-class Cart(models.Model):
-    """Корзина для анонимных пользователей"""
-    id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
-    session_key = models.CharField(max_length=40, unique=True, verbose_name="Ключ сессии")
-    
-    # Служебные поля
-    ip_address = models.GenericIPAddressField(blank=True, null=True, verbose_name="IP адрес")
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
-
-    @property
-    def total_items(self):
-        """Общее количество товаров в корзине"""
-        return sum(item.quantity for item in self.items.all())
-
-    @property
-    def total_amount(self):
-        """Общая сумма корзины"""
-        return sum(item.total_price for item in self.items.all())
-
-    def add_item(self, product, quantity=1, attributes=None):
-        """Добавить товар в корзину"""
-        cart_item, created = CartItem.objects.get_or_create(
-            cart=self,
-            product=product,
-            defaults={'quantity': quantity}
-        )
-        
-        if not created:
-            cart_item.quantity += quantity
-            cart_item.save()
-        
-        # Добавляем атрибуты если указаны
-        if attributes:
-            cart_item.attributes.set(attributes)
-        
-        return cart_item
-
-    def remove_item(self, product):
-        """Удалить товар из корзины"""
-        CartItem.objects.filter(cart=self, product=product).delete()
-
-    def clear(self):
-        """Очистить корзину"""
-        self.items.all().delete()
-
-    def to_order(self, order_data):
-        """Преобразовать корзину в заказ"""
-        if not self.items.exists():
-            raise ValueError("Корзина пуста")
-        
-        # Создаем заказ с переданными данными
-        order = Order.objects.create(
-            delivery_address=order_data['delivery_address'],
-            delivery_method=order_data['delivery_method'],
-            payment_method=order_data['payment_method'],
-            service=order_data['service'],
-            customer_name=order_data['customer_name'],
-            customer_phone=order_data['customer_phone'],
-            customer_email=order_data.get('customer_email'),
-            notes=order_data.get('notes'),
-            personal_data_consent=order_data['personal_data_consent'],
-            ip_address=self.ip_address,
-            total_amount=self.total_amount
-        )
-        
-        # Переносим товары из корзины в заказ
-        for cart_item in self.items.all():
-            OrderItem.objects.create(
-                order=order,
-                product=cart_item.product,
-                quantity=cart_item.quantity,
-                price=cart_item.product.price,
-                item_name=cart_item.product.name,
-                item_description=cart_item.product.description
-            )
-        
-        # Очищаем корзину
-        self.clear()
-        
-        return order
-    
-
-    def __str__(self):
-        return f"Корзина {self.session_key}"
-    
-    class Meta:
-        verbose_name = "Корзина"
-        verbose_name_plural = "Корзины"
-        ordering = ("-created_at",)
-
-
-class CartItem(models.Model):
-    """Товар в корзине"""
-    id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
-    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items', verbose_name="Корзина")
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, verbose_name="Продукт")
-    quantity = models.PositiveIntegerField(default=1, verbose_name="Количество")
-    
-    # Атрибуты товара (если выбраны)
-    attributes = models.ManyToManyField(Attribute, blank=True, verbose_name="Атрибуты")
-    
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата добавления")
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
-
-    
-    @property
-    def total_price(self):
-        """Общая цена товара с учетом количества"""
-        return self.price_with_attributes * self.quantity
-
-    @property
-    def price_with_attributes(self):
-        """Цена товара с учетом выбранных атрибутов"""
-        if self.attributes.exists():
-            return self.product.get_price_with_attributes(self.attributes.all())
-        return self.product.price
-    
-    def __str__(self):
-        return f"{self.product.name} x{self.quantity}"
-    
-    class Meta:
-        verbose_name = "Товар в корзине"
-        verbose_name_plural = "Товары в корзине"
-        unique_together = ('cart', 'product')
 
 
 class Order(models.Model):
     id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
     
     # Информация о доставке
-    delivery_address = models.TextField(verbose_name="Адрес доставки")
+    delivery_address = models.TextField(blank=True, null=True, verbose_name="Адрес доставки")
     delivery_date = models.DateTimeField(blank=True, null=True, verbose_name="Дата доставки")
     delivery_notes = models.TextField(blank=True, null=True, verbose_name="Примечания к доставке")
     delivery_method = models.ForeignKey(DeliveryMethod, on_delete=models.SET_NULL, verbose_name="Способ доставки")
@@ -634,6 +650,20 @@ class Order(models.Model):
     consent_date = models.DateTimeField(blank=True, null=True, verbose_name="Дата согласия")
     
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Общая сумма")
+    
+    # Статусы
+    status = models.CharField(
+        max_length=20,
+        choices=OrderStatus.choices,
+        default=OrderStatus.PENDING,
+        verbose_name="Статус заказа"
+    )
+    payment_status = models.CharField(
+        max_length=20,
+        choices=PaymentStatus.choices,
+        default=PaymentStatus.PENDING,
+        verbose_name="Статус оплаты"
+    )
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
@@ -715,6 +745,13 @@ class OrderItem(models.Model):
     service = models.ForeignKey(Service, on_delete=models.SET_NULL, default=None, null=True, blank=True, verbose_name="Услуга")
     quantity = models.PositiveIntegerField(default=1, verbose_name="Количество")
     price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Цена")
+    
+    # Атрибуты товара (если выбраны)
+    attributes = models.ManyToManyField(Attribute, blank=True, verbose_name="Атрибуты")
+    
+    # Дополнительные поля для истории
+    item_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="Название товара")
+    item_description = models.TextField(blank=True, null=True, verbose_name="Описание товара")
 
     def __str__(self):
         if self.product:
@@ -747,6 +784,7 @@ class Review(models.Model):
         help_text="заголовок"
     )
     stars = models.PositiveSmallIntegerField(
+        choices=ReviewRating.choices,
         verbose_name="оценка",
         help_text="оценка"
     )

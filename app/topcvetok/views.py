@@ -1,18 +1,18 @@
-
 from django.contrib.auth import authenticate
 from django_filters.rest_framework import DjangoFilterBackend
+from django.utils.dateparse import parse_datetime
 from rest_framework import filters, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from topcvetok import serializers as auth_serializers
 from topcvetok import models
 from topcvetok.filters import ProductFilter, AttributeFilter, AttributeTypeFilter, ServiceFilter
+from topcvetok.enums import DeliveryType, AttributeFilterType, ReviewRating
 
 
 # Авторизация
@@ -61,91 +61,84 @@ class Logout(APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request):
-        tokens = OutstandingToken.objects.filter(user_id=request.user.id)
+        try:
+            refresh_token = request.data["refresh"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
 
-        for token in tokens:
-            t, _ = BlacklistedToken.objects.get_or_create(token=token)
+            return Response(status=status.HTTP_205_RESET_CONTENT)
+        except Exception as e:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(status=status.HTTP_205_RESET_CONTENT)
 
-
-# Админ ViewSet'ы (требуют авторизации)
+# Админ API
 class AttributeTypeViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    """ViewSet для работы с типами атрибутов"""
     queryset = models.AttributeType.objects.all()
     serializer_class = auth_serializers.AttributeTypeSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'description']
-    filterset_fields = ['is_active', 'is_filterable']
+    permission_classes = (IsAuthenticated,)
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = AttributeTypeFilter
 
 
 class AttributeViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    """ViewSet для работы с атрибутами"""
     queryset = models.Attribute.objects.all()
     serializer_class = auth_serializers.AttributeSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['display_name']
-    filterset_fields = ['attribute_type', 'is_active', 'is_filterable']
+    permission_classes = (IsAuthenticated,)
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = AttributeFilter
 
 
 class ProductAttributeViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    """ViewSet для работы с атрибутами продуктов"""
     queryset = models.ProductAttribute.objects.all()
     serializer_class = auth_serializers.ProductAttributeSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['attribute', 'product']
+    permission_classes = (IsAuthenticated,)
 
 
 class ServiceViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    """ViewSet для работы с услугами"""
     queryset = models.Service.objects.all()
     serializer_class = auth_serializers.ServiceSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'description']
-    filterset_fields = ['is_available', 'is_active']
+    permission_classes = (IsAuthenticated,)
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = ServiceFilter
 
 
 class PaymentMethodViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    """ViewSet для работы со способами оплаты"""
     queryset = models.PaymentMethod.objects.all()
     serializer_class = auth_serializers.PaymentMethodSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'description']
-    filterset_fields = ['is_active']
+    permission_classes = (IsAuthenticated,)
 
 
 class DeliveryMethodViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    """ViewSet для работы со способами доставки"""
     queryset = models.DeliveryMethod.objects.all()
     serializer_class = auth_serializers.DeliveryMethodSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['name', 'description']
-    filterset_fields = ['is_active']
+    permission_classes = (IsAuthenticated,)
 
 
 class OrderViewSet(viewsets.ModelViewSet):
-    permission_classes = (IsAuthenticated,)
+    """ViewSet для работы с заказами"""
     queryset = models.Order.objects.all()
     serializer_class = auth_serializers.OrderSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['customer_name', 'customer_phone', 'delivery_address', 'order_number']
-    filterset_fields = ['payment_method', 'delivery_method', 'service']
+    permission_classes = (IsAuthenticated,)
 
 
 class ReviewViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = (AllowAny,)
-    queryset = models.Review.objects.all()
+    """ViewSet для работы с отзывами"""
+    queryset = models.Review.objects.filter(is_approved=True)
     serializer_class = auth_serializers.ReviewSerializer
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['customer_name', 'comment']
-    filterset_fields = ['rating', 'is_approved']
+    permission_classes = (AllowAny,)
 
 
+# Публичный API
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet для работы с продуктами"""
     queryset = models.Product.objects.filter(is_available=True).prefetch_related(
-        'categories',
-        'product_attributes__attribute__attribute_type'
+        'categories', 'product_attributes__attribute__attribute_type'
     )
     serializer_class = auth_serializers.ProductSerializer
     permission_classes = (AllowAny,)
@@ -156,6 +149,22 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ['name']
 
 
+class AttributeTypeViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet для работы с типами атрибутов"""
+    queryset = models.AttributeType.objects.filter(is_active=True, is_filterable=True).prefetch_related('values')
+    serializer_class = auth_serializers.AttributeTypeSerializer
+    permission_classes = (AllowAny,)
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = AttributeTypeFilter
+
+
+class AttributeViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet для работы с атрибутами"""
+    queryset = models.Attribute.objects.filter(is_active=True).select_related('attribute_type')
+    serializer_class = auth_serializers.AttributeSerializer
+    permission_classes = (AllowAny,)
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = AttributeFilter
 
 
 class PublicServiceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -179,331 +188,74 @@ class PublicDeliveryMethodViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = auth_serializers.DeliveryMethodSerializer
 
 
-# Корзина
-class CartViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы с корзиной"""
-    queryset = models.Cart.objects.all()
-    serializer_class = auth_serializers.CartSerializer
-    permission_classes = (AllowAny,)
-    
-    def get_queryset(self):
-        """Фильтрует корзины по session_key"""
-        session_key = self.request.session.session_key
-        if not session_key:
-            self.request.session.create()
-            session_key = self.request.session.session_key
-        
-        return models.Cart.objects.filter(session_key=session_key)
-    
-    def get_object(self):
-        """Получает или создает корзину для текущей сессии"""
-        session_key = self.request.session.session_key
-        if not session_key:
-            self.request.session.create()
-            session_key = self.request.session.session_key
-        
-        cart, created = models.Cart.objects.get_or_create(
-            session_key=session_key,
-            defaults={'ip_address': self.get_client_ip()}
-        )
-        
-        if created:
-            cart.ip_address = self.get_client_ip()
-            cart.save()
-        
-        return cart
-    
-    def get_client_ip(self):
-        """Получает IP адрес клиента"""
-        x_forwarded_for = self.request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = self.request.META.get('REMOTE_ADDR')
-        return ip
-
-
-@extend_schema_view(
-    post=extend_schema(
-        description="Добавить товар в корзину.",
-        tags=["Корзина"],
-        summary="Добавить товар",
-    ),
-)
-class CartAddItemView(APIView):
-    """API для добавления товара в корзину"""
-    permission_classes = (AllowAny,)
-    
-    def post(self, request):
-        """Добавляет товар в корзину"""
-        serializer = auth_serializers.CartAddItemSerializer(data=request.data)
-        
-        if serializer.is_valid():
-            # Получаем или создаем корзину
-            cart = self.get_or_create_cart()
-            
-            # Получаем продукт и атрибуты
-            product = models.Product.objects.get(id=serializer.validated_data['product_id'])
-            attributes = None
-            
-            if serializer.validated_data.get('attribute_ids'):
-                attributes = models.Attribute.objects.filter(
-                    id__in=serializer.validated_data['attribute_ids']
-                )
-            
-            # Добавляем товар в корзину
-            cart_item = cart.add_item(
-                product=product,
-                quantity=serializer.validated_data['quantity'],
-                attributes=attributes
-            )
-            
-            return Response(
-                auth_serializers.CartItemSerializer(cart_item).data,
-                status=status.HTTP_201_CREATED
-            )
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    def get_or_create_cart(self):
-        """Получает или создает корзину для текущей сессии"""
-        session_key = self.request.session.session_key
-        if not session_key:
-            self.request.session.create()
-            session_key = self.request.session.session_key
-        
-        cart, created = models.Cart.objects.get_or_create(
-            session_key=session_key,
-            defaults={'ip_address': self.get_client_ip()}
-        )
-        
-        if created:
-            cart.ip_address = self.get_client_ip()
-            cart.save()
-        
-        return cart
-    
-    def get_client_ip(self):
-        """Получает IP адрес клиента"""
-        x_forwarded_for = self.request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = self.request.META.get('REMOTE_ADDR')
-        return ip
-
-
-@extend_schema_view(
-    put=extend_schema(
-        description="Обновить товар в корзине.",
-        tags=["Корзина"],
-        summary="Обновить товар",
-    ),
-    delete=extend_schema(
-        description="Удалить товар из корзины.",
-        tags=["Корзина"],
-        summary="Удалить товар",
-    ),
-)
-class CartItemView(APIView):
-    """API для работы с товарами в корзине"""
-    permission_classes = (AllowAny,)
-    
-    def put(self, request, item_id):
-        """Обновляет товар в корзине"""
-        try:
-            cart_item = models.CartItem.objects.get(
-                id=item_id,
-                cart__session_key=self.get_session_key()
-            )
-        except models.CartItem.DoesNotExist:
-            return Response(
-                {'error': 'Товар не найден в корзине'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        serializer = auth_serializers.CartUpdateItemSerializer(data=request.data)
-        
-        if serializer.is_valid():
-            cart_item.quantity = serializer.validated_data['quantity']
-            
-            if 'attribute_ids' in serializer.validated_data:
-                attributes = models.Attribute.objects.filter(
-                    id__in=serializer.validated_data['attribute_ids']
-                )
-                cart_item.attributes.set(attributes)
-            
-            cart_item.save()
-            
-            return Response(auth_serializers.CartItemSerializer(cart_item).data)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    def delete(self, request, item_id):
-        """Удаляет товар из корзины"""
-        try:
-            cart_item = models.CartItem.objects.get(
-                id=item_id,
-                cart__session_key=self.get_session_key()
-            )
-            cart_item.delete()
-            return Response(status=status.HTTP_204_NO_CONTENT)
-        except models.CartItem.DoesNotExist:
-            return Response(
-                {'error': 'Товар не найден в корзине'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-    
-    def get_session_key(self):
-        """Получает ключ сессии"""
-        session_key = self.request.session.session_key
-        if not session_key:
-            self.request.session.create()
-            session_key = self.request.session.session_key
-        return session_key
-
-
-@extend_schema_view(
-    post=extend_schema(
-        description="Очистить корзину.",
-        tags=["Корзина"],
-        summary="Очистить корзину",
-    ),
-)
-class CartClearView(APIView):
-    """API для очистки корзины"""
-    permission_classes = (AllowAny,)
-    
-    def post(self, request):
-        """Очищает корзину"""
-        cart = self.get_or_create_cart()
-        cart.clear()
-        
-        return Response(
-            {'message': 'Корзина очищена'},
-            status=status.HTTP_200_OK
-        )
-    
-    def get_or_create_cart(self):
-        """Получает или создает корзину для текущей сессии"""
-        session_key = self.request.session.session_key
-        if not session_key:
-            self.request.session.create()
-            session_key = self.request.session.session_key
-        
-        cart, created = models.Cart.objects.get_or_create(
-            session_key=session_key,
-            defaults={'ip_address': self.get_client_ip()}
-        )
-        
-        if created:
-            cart.ip_address = self.get_client_ip()
-            cart.save()
-        
-        return cart
-    
-    def get_client_ip(self):
-        """Получает IP адрес клиента"""
-        x_forwarded_for = self.request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = self.request.META.get('REMOTE_ADDR')
-        return ip
-
-
-@extend_schema_view(
-    post=extend_schema(
-        description="Оформить заказ из корзины.",
-        tags=["Корзина"],
-        summary="Оформить заказ",
-    ),
-)
-class CartCheckoutView(APIView):
-    """API для оформления заказа из корзины"""
-    permission_classes = (AllowAny,)
-    
-    def post(self, request):
-        """Оформляет заказ из корзины"""
-        # Получаем корзину
-        cart = self.get_or_create_cart()
-        
-        if not cart.items.exists():
-            return Response(
-                {'error': 'Корзина пуста'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Валидируем данные заказа
-        serializer = auth_serializers.CartCheckoutSerializer(data=request.data)
-        
-        if serializer.is_valid():
-            try:
-                # Преобразуем корзину в заказ
-                order = cart.to_order(serializer.validated_data)
-                
-                return Response(
-                    auth_serializers.OrderSerializer(order).data,
-                    status=status.HTTP_201_CREATED
-                )
-                
-            except ValueError as e:
-                return Response(
-                    {'error': str(e)},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    def get_or_create_cart(self):
-        """Получает или создает корзину для текущей сессии"""
-        session_key = self.request.session.session_key
-        if not session_key:
-            self.request.session.create()
-            session_key = self.request.session.session_key
-        
-        cart, created = models.Cart.objects.get_or_create(
-            session_key=session_key,
-            defaults={'ip_address': self.get_client_ip()}
-        )
-        
-        if created:
-            cart.ip_address = self.get_client_ip()
-            cart.save()
-        
-        return cart
-    
-    def get_client_ip(self):
-        """Получает IP адрес клиента"""
-        x_forwarded_for = self.request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
-        else:
-            ip = self.request.META.get('REMOTE_ADDR')
-        return ip
-
-
 # Заказы
 @extend_schema_view(
     post=extend_schema(
-        description="Создать новый заказ с обязательным согласием на обработку персональных данных.",
+        description="Создать новый заказ с товарами.",
         tags=["Заказы"],
         summary="Создание заказа",
     ),
 )
 class OrderCreateView(APIView):
-    """API для создания заказов с проверкой согласия"""
+    """API для создания заказов с товарами"""
     permission_classes = (AllowAny,)
     
     def post(self, request):
-        """Создает новый заказ"""
+        """Создает новый заказ с товарами"""
         serializer = auth_serializers.OrderCreateSerializer(data=request.data)
         
         if serializer.is_valid():
-            # Добавляем IP адрес клиента
-            order = serializer.save(
+            # Получаем данные заказа
+            order_data = serializer.validated_data
+            
+            # Создаем заказ
+            order = models.Order.objects.create(
+                delivery_address=order_data['delivery_address'],
+                delivery_date=order_data.get('delivery_date'),
+                delivery_notes=order_data.get('delivery_notes', ''),
+                delivery_method_id=order_data['delivery_method'],
+                payment_method_id=order_data['payment_method'],
+                service_id=order_data.get('service') if order_data.get('service') else None,
+                customer_name=order_data['customer_name'],
+                customer_phone=order_data['customer_phone'],
+                customer_email=order_data.get('customer_email', ''),
+                notes=order_data.get('notes', ''),
+                personal_data_consent=order_data['personal_data_consent'],
                 ip_address=self.get_client_ip(request)
             )
+            
+            # Добавляем товары в заказ
+            total_amount = 0
+            for item_data in order_data['items']:
+                product = models.Product.objects.get(id=item_data['product_id'])
+                
+                # Рассчитываем цену с учетом атрибутов
+                price = product.price
+                if item_data.get('attribute_ids'):
+                    attributes = models.Attribute.objects.filter(
+                        id__in=item_data['attribute_ids']
+                    )
+                    price = product.get_price_with_attributes(attributes)
+                
+                # Создаем позицию заказа
+                order_item = models.OrderItem.objects.create(
+                    order=order,
+                    product=product,
+                    quantity=item_data['quantity'],
+                    price=price,
+                    item_name=product.name,
+                    item_description=product.description
+                )
+                
+                # Добавляем атрибуты если есть
+                if item_data.get('attribute_ids'):
+                    order_item.attributes.set(attributes)
+                
+                total_amount += price * item_data['quantity']
+            
+            # Обновляем общую сумму заказа
+            order.total_amount = total_amount
+            order.save()
             
             return Response(
                 auth_serializers.OrderSerializer(order).data,
@@ -522,56 +274,112 @@ class OrderCreateView(APIView):
         return ip
 
 
-# Дополнительные API
 @extend_schema_view(
     post=extend_schema(
         description="Рассчитать цену продукта с учетом выбранных атрибутов.",
-        tags=["Цены"],
-        summary="Расчет цены",
+        tags=["Продукты"],
+        summary="Рассчитать цену",
     ),
 )
 class CalculatePriceView(APIView):
-    """API для расчета цены продукта с учетом атрибутов"""
+    """API для расчета цены продукта с атрибутами"""
     permission_classes = (AllowAny,)
     
     def post(self, request):
-        """Рассчитывает цену продукта с учетом выбранных атрибутов"""
+        """Рассчитывает цену продукта с учетом атрибутов"""
         product_id = request.data.get('product_id')
-        attribute_value_ids = request.data.get('attribute_values', [])
+        attribute_ids = request.data.get('attribute_ids', [])
         
         if not product_id:
-            return Response({'error': 'product_id обязателен'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Не указан ID продукта"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         try:
             product = models.Product.objects.get(id=product_id, is_available=True)
         except models.Product.DoesNotExist:
-            return Response({'error': 'Продукт не найден'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Продукт не найден"},
+                status=status.HTTP_404_NOT_FOUND
+            )
         
-        # Получаем объекты Attribute
-        attributes = models.Attribute.objects.filter(
-            id__in=attribute_value_ids,
-            is_active=True
-        )
+        # Получаем атрибуты если указаны
+        attributes = []
+        if attribute_ids:
+            attributes = models.Attribute.objects.filter(
+                id__in=attribute_ids, is_active=True
+            )
         
-        # Рассчитываем цену с учетом атрибутов
-        calculated_price = product.get_price_with_attributes(attributes)
-        base_price = product.price
-        
-        # Получаем детали модификаторов
-        modifiers = []
-        for attribute in attributes:
-            if attribute.price_modifier != 0:
-                modifiers.append({
-                    'attribute_name': attribute.display_name,
-                    'modifier': float(attribute.price_modifier)
-                })
+        # Рассчитываем цену
+        if attributes:
+            final_price = product.get_price_with_attributes(attributes)
+            modifiers = [float(attr.price_modifier) for attr in attributes]
+        else:
+            final_price = product.price
+            modifiers = []
         
         return Response({
-            'product_id': product_id,
-            'base_price': float(base_price),
-            'calculated_price': float(calculated_price),
+            'product_id': product.id,
+            'base_price': float(product.price),
+            'final_price': float(final_price),
             'modifiers': modifiers,
-            'total_modifier': float(calculated_price - base_price)
+            'total_modifier': sum(modifiers)
+        })
+
+
+@extend_schema_view(
+    post=extend_schema(
+        description="Рассчитать стоимость доставки.",
+        tags=["Доставка"],
+        summary="Рассчитать стоимость доставки",
+    ),
+)
+class CalculateDeliveryPriceView(APIView):
+    """API для расчета стоимости доставки"""
+    permission_classes = (AllowAny,)
+    
+    def post(self, request):
+        """Рассчитывает стоимость доставки"""
+        delivery_method_id = request.data.get('delivery_method_id')
+        order_amount = request.data.get('order_amount', 0)
+        delivery_time = request.data.get('delivery_time')  # ISO datetime string
+        
+        if not delivery_method_id:
+            return Response(
+                {"error": "Не указан ID способа доставки"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            delivery_method = models.DeliveryMethod.objects.get(
+                id=delivery_method_id, is_active=True
+            )
+        except models.DeliveryMethod.DoesNotExist:
+            return Response(
+                {"error": "Способ доставки не найден"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Парсим время доставки если указано
+        delivery_datetime = None
+        if delivery_time:
+            delivery_datetime = parse_datetime(delivery_time)
+        
+        # Рассчитываем стоимость доставки
+        delivery_price = delivery_method.calculate_delivery_price(
+            order_amount=order_amount,
+            delivery_time=delivery_datetime
+        )
+        
+        return Response({
+            'delivery_method_id': delivery_method.id,
+            'delivery_method_name': delivery_method.name,
+            'delivery_type': delivery_method.delivery_type,
+            'order_amount': float(order_amount),
+            'delivery_price': float(delivery_price),
+            'delivery_info': delivery_method.get_delivery_info(),
+            'delivery_time': delivery_time
         })
 
 
@@ -590,27 +398,55 @@ class FilterOptionsView(APIView):
         """Возвращает опции для фильтрации"""
         # Получаем типы атрибутов для фильтрации
         attribute_types = models.AttributeType.objects.filter(
-            is_active=True, 
-            is_filterable=True
-        ).prefetch_related('values')
+            is_active=True, is_filterable=True
+        ).prefetch_related('attribute_set')
         
-        # Получаем категории
-        categories = models.Category.objects.filter(is_active=True)
+        filter_options = {}
+        for attr_type in attribute_types:
+            attributes = attr_type.attribute_set.filter(is_active=True)
+            filter_options[attr_type.slug] = {
+                'name': attr_type.name,
+                'slug': attr_type.slug,
+                'filter_type': attr_type.filter_type,
+                'values': [
+                    {
+                        'id': attr.id,
+                        'display_name': attr.display_name,
+                        'hex_code': attr.hex_code,
+                        'price_modifier': float(attr.price_modifier)
+                    }
+                    for attr in attributes
+                ]
+            }
         
-        # Получаем ценовые диапазоны
-        products = models.Product.objects.filter(is_available=True)
-        if products.exists():
-            min_price = products.aggregate(min_price=models.Min('price'))['min_price']
-            max_price = products.aggregate(max_price=models.Max('price'))['max_price']
-        else:
-            min_price = max_price = 0
+        return Response(filter_options)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        description="Получить доступные енамы для фронтенда.",
+        tags=["Справочники"],
+        summary="Енамы",
+    ),
+)
+class EnumsView(APIView):
+    """API для получения енамов"""
+    permission_classes = (AllowAny,)
+    
+    def get(self, request):
+        """Возвращает все доступные енамы"""
         
         return Response({
-            'attribute_types': auth_serializers.AttributeTypeSerializer(attribute_types, many=True).data,
-            'categories': auth_serializers.CategorySerializer(categories, many=True).data,
-            'price_range': {
-                'min': float(min_price) if min_price else 0,
-                'max': float(max_price) if max_price else 0
-            }
+            'delivery_types': [
+                {'value': choice[0], 'label': choice[1]} 
+                for choice in DeliveryType.choices
+            ],
+            'attribute_filter_types': [
+                {'value': choice[0], 'label': choice[1]} 
+                for choice in AttributeFilterType.choices
+            ],
+            'review_ratings': [
+                {'value': choice[0], 'label': choice[1]} 
+                for choice in ReviewRating.choices
+            ]
         })
-
