@@ -12,7 +12,7 @@ app.autodiscover_tasks(lambda: settings.INSTALLED_APPS, force=True)
 
 app.conf.beat_schedule = {
     "clear-expired-tokens": {
-        "task": "mol.tasks.clear_expired_tokens",
+        "task": "topcvetok.tasks.clear_expired_tokens",
         "schedule": 60,
     },
 }

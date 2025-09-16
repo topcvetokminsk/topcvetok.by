@@ -229,22 +229,9 @@ class ReviewFilter(django_filters.FilterSet):
     
     customer_name = django_filters.CharFilter(field_name='customer_name', lookup_expr='icontains')
     rating = django_filters.NumberFilter(field_name='rating')
-    is_approved = django_filters.BooleanFilter(field_name='is_approved')
     created_at_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
     created_at_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
     
     class Meta:
         model = models.Review
-        fields = ['customer_name', 'rating', 'is_approved', 'created_at_after', 'created_at_before']
-
-
-class CartFilter(django_filters.FilterSet):
-    """Фильтр для корзин"""
-    
-    session_key = django_filters.CharFilter(field_name='session_key', lookup_expr='exact')
-    created_at_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
-    created_at_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
-    
-    class Meta:
-        model = models.Cart
-        fields = ['session_key', 'created_at_after', 'created_at_before']
+        fields = ['customer_name', 'rating', 'created_at_after', 'created_at_before']

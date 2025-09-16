@@ -7,7 +7,7 @@ from django.utils import timezone
 from topcvetok.managers import AccountManager
 from topcvetok.utils import generate_uuid, LowercaseEmailField
 from topcvetok.validators import validate_login, validate_name, validate_phone
-from topcvetok.enums import DeliveryType, OrderStatus, PaymentStatus, AttributeFilterType, ReviewRating
+from topcvetok.enums import DeliveryType, AttributeFilterType, ReviewRating
 
 from storages.backends.ftp import FTPStorage
 from django.conf import settings
@@ -250,13 +250,13 @@ class AttributeType(models.Model):
     class Meta:
         verbose_name = "Тип атрибута"
         verbose_name_plural = "Типы атрибутов"
-        ordering = ("display_order", "name")
 
 
 class Attribute(models.Model):
     """Значение атрибута (например: Красный, 5 штук, 1000-2000 руб)"""
     id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
     attribute_type = models.ForeignKey(AttributeType, on_delete=models.CASCADE, related_name='values', verbose_name="Тип атрибута")
+    slug = models.TextField(blank=True, null=True, verbose_name="URL-адрес")
     display_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="Отображаемое название")
     hex_code = models.CharField(max_length=7, blank=True, null=True, verbose_name="HEX код (для цветов)")
     price_modifier = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Модификатор цены", help_text="Дополнительная стоимость (положительная) или скидка (отрицательная)")
@@ -618,8 +618,6 @@ class Service(models.Model):
         verbose_name_plural = "Услуги"
 
 
-
-
 class Order(models.Model):
     id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
     
@@ -627,14 +625,22 @@ class Order(models.Model):
     delivery_address = models.TextField(blank=True, null=True, verbose_name="Адрес доставки")
     delivery_date = models.DateTimeField(blank=True, null=True, verbose_name="Дата доставки")
     delivery_notes = models.TextField(blank=True, null=True, verbose_name="Примечания к доставке")
-    delivery_method = models.ForeignKey(DeliveryMethod, on_delete=models.SET_NULL, verbose_name="Способ доставки")
+    delivery_method = models.ForeignKey(DeliveryMethod, on_delete=models.SET_NULL, null=True, verbose_name="Способ доставки")
     
     # Информация об оплате
-    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.SET_NULL, verbose_name="Способ оплаты")
+    payment_method = models.ForeignKey(PaymentMethod, on_delete=models.SET_NULL, null=True, verbose_name="Способ оплаты")
+
+    service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, verbose_name="Услуга")
 
     # Информация о клиенте на момент заказа (для истории)
     customer_name = models.CharField(max_length=255, verbose_name="Имя клиента")
-    customer_phone = models.CharField(max_length=20, verbose_name="Телефон клиента")
+    customer_phone = models.CharField(
+        max_length=13,
+        null=True,
+        blank=True,
+        verbose_name="Телефон клиента",
+        validators=[validate_phone]
+    )
     customer_email = models.EmailField(blank=True, null=True, verbose_name="Email клиента")
     
     # Дополнительная информация
@@ -642,28 +648,12 @@ class Order(models.Model):
     
     # Служебные поля
     ip_address = models.GenericIPAddressField(blank=True, null=True, verbose_name="IP адрес")
-    
-    service = models.ForeignKey(Service, on_delete=models.SET_NULL, verbose_name="Услуга")
-    
+
     # Согласие на обработку персональных данных
     personal_data_consent = models.BooleanField(default=False, verbose_name="Согласие на обработку персональных данных")
     consent_date = models.DateTimeField(blank=True, null=True, verbose_name="Дата согласия")
     
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Общая сумма")
-    
-    # Статусы
-    status = models.CharField(
-        max_length=20,
-        choices=OrderStatus.choices,
-        default=OrderStatus.PENDING,
-        verbose_name="Статус заказа"
-    )
-    payment_status = models.CharField(
-        max_length=20,
-        choices=PaymentStatus.choices,
-        default=PaymentStatus.PENDING,
-        verbose_name="Статус оплаты"
-    )
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")

@@ -127,14 +127,14 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = (IsAuthenticated,)
 
 
+# Публичный API
 class ReviewViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet для работы с отзывами"""
-    queryset = models.Review.objects.filter(is_approved=True)
+    queryset = models.Review.objects.all()
     serializer_class = auth_serializers.ReviewSerializer
     permission_classes = (AllowAny,)
 
 
-# Публичный API
 class ProductViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet для работы с продуктами"""
     queryset = models.Product.objects.filter(is_available=True).prefetch_related(

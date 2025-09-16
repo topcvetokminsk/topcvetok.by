@@ -22,15 +22,11 @@ public_router.register(r"attributes", views.AttributeViewSet, basename="attribut
 public_router.register(r"services", views.PublicServiceViewSet, basename="public-services")
 public_router.register(r"payment-methods", views.PublicPaymentMethodViewSet, basename="public-payment-methods")
 public_router.register(r"delivery-methods", views.PublicDeliveryMethodViewSet, basename="public-delivery-methods")
-public_router.register(r"cart", views.CartViewSet, basename="cart")
 
 urlpatterns = [
     # Авторизация
     path("login/", views.Login.as_view()),
     path("logout/", views.Logout.as_view()),
-    
-    # Заявки
-    path('request-note/', views.RequestNote.as_view(), name='request-note'),
     
     # Фильтры
     path("filter-options/", views.FilterOptionsView.as_view(), name="filter-options"),
