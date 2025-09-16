@@ -24,8 +24,8 @@ class ProductFilter(django_filters.FilterSet):
     attributes = django_filters.CharFilter(method='filter_by_attributes')
     
     class Meta:
-        model = Product
-        fields = ['name', 'category', 'category_parent', 'categories', 'price_min', 'price_max', 'is_available', 'color', 'quantity', 'price_range', 'attributes']
+        model = models.Product
+        fields = ['name', 'categories', 'price_min', 'price_max', 'is_available', 'color', 'quantity', 'price_range', 'attributes']
     
     def filter_by_color(self, queryset, name, value):
         """Фильтр по цвету"""
@@ -62,21 +62,22 @@ class ProductFilter(django_filters.FilterSet):
         if not value:
             return queryset
         
-        price_range_values = models.Attribute.objects.filter(
-            attribute_type__slug='price_range',
-            display_name__icontains=value
-        )
-        
-        if price_range_values.exists():
-            price_range = price_range_values.first()
-            if price_range.min_value is not None and price_range.max_value is not None:
-                return queryset.filter(
-                    price__gte=price_range.min_value,
-                    price__lte=price_range.max_value
-                )
-            elif price_range.min_value is not None:
-                return queryset.filter(price__gte=price_range.min_value)
-        return queryset.none()
+        # Парсим диапазон цен из строки вида "100-500" или "100+"
+        try:
+            if '-' in value:
+                min_price, max_price = value.split('-', 1)
+                min_price = float(min_price.strip())
+                max_price = float(max_price.strip())
+                return queryset.filter(price__gte=min_price, price__lte=max_price)
+            elif value.endswith('+'):
+                min_price = float(value[:-1].strip())
+                return queryset.filter(price__gte=min_price)
+            else:
+                # Точное значение
+                exact_price = float(value.strip())
+                return queryset.filter(price=exact_price)
+        except (ValueError, AttributeError):
+            return queryset.none()
     
     def filter_by_category(self, queryset, name, value):
         """Фильтр по категории (по slug)"""
@@ -122,7 +123,7 @@ class ProductFilter(django_filters.FilterSet):
                         display_name__icontains=attr_value
                     )
                     if attr_values.exists():
-                        conditions |= Q(product_attributes__attribute_value__in=attr_values)
+                        conditions |= Q(product_attributes__attribute__in=attr_values)
             return queryset.filter(conditions)
         else:
             # И - все атрибуты должны совпадать
@@ -158,7 +159,7 @@ class AttributeTypeFilter(django_filters.FilterSet):
     is_active = django_filters.BooleanFilter(field_name='is_active')
     
     class Meta:
-        model = AttributeType
+        model = models.AttributeType
         fields = ['is_filterable', 'is_active']
 
 
@@ -190,3 +191,60 @@ class ServiceFilter(django_filters.FilterSet):
             return queryset.filter(
                 models.Q(price__isnull=False) & ~models.Q(price=0)
             )
+
+
+class CategoryFilter(django_filters.FilterSet):
+    """Фильтр для категорий"""
+    
+    name = django_filters.CharFilter(field_name='name', lookup_expr='icontains')
+    parent = django_filters.CharFilter(field_name='parent__slug')
+    is_active = django_filters.BooleanFilter(field_name='is_active')
+    
+    class Meta:
+        model = models.Category
+        fields = ['name', 'parent', 'is_active']
+
+
+class OrderFilter(django_filters.FilterSet):
+    """Фильтр для заказов"""
+    
+    order_number = django_filters.CharFilter(field_name='order_number', lookup_expr='icontains')
+    customer_name = django_filters.CharFilter(field_name='customer_name', lookup_expr='icontains')
+    customer_phone = django_filters.CharFilter(field_name='customer_phone', lookup_expr='icontains')
+    delivery_address = django_filters.CharFilter(field_name='delivery_address', lookup_expr='icontains')
+    payment_method = django_filters.CharFilter(field_name='payment_method__id')
+    delivery_method = django_filters.CharFilter(field_name='delivery_method__id')
+    service = django_filters.CharFilter(field_name='service__id')
+    created_at_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
+    created_at_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
+    
+    class Meta:
+        model = models.Order
+        fields = ['order_number', 'customer_name', 'customer_phone', 'delivery_address', 
+                 'payment_method', 'delivery_method', 'service', 'created_at_after', 'created_at_before']
+
+
+class ReviewFilter(django_filters.FilterSet):
+    """Фильтр для отзывов"""
+    
+    customer_name = django_filters.CharFilter(field_name='customer_name', lookup_expr='icontains')
+    rating = django_filters.NumberFilter(field_name='rating')
+    is_approved = django_filters.BooleanFilter(field_name='is_approved')
+    created_at_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
+    created_at_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
+    
+    class Meta:
+        model = models.Review
+        fields = ['customer_name', 'rating', 'is_approved', 'created_at_after', 'created_at_before']
+
+
+class CartFilter(django_filters.FilterSet):
+    """Фильтр для корзин"""
+    
+    session_key = django_filters.CharFilter(field_name='session_key', lookup_expr='exact')
+    created_at_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
+    created_at_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
+    
+    class Meta:
+        model = models.Cart
+        fields = ['session_key', 'created_at_after', 'created_at_before']

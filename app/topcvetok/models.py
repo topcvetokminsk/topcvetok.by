@@ -102,12 +102,12 @@ class Banner(models.Model):
         null=True
     )
 
-    class Meta:
-        verbose_name = "Тип цветка"
-        verbose_name_plural = "Типы цветов"
-
     def __str__(self):
         return self.title
+    
+    class Meta:
+        verbose_name = "Баннер"
+        verbose_name_plural = "Баннеры"
 
 
 class Video(models.Model):
@@ -132,7 +132,7 @@ class Video(models.Model):
     frameBackground = models.TextField(blank=True, null=True, verbose_name="Для фронта бэкграунд")
     
     def __str__(self):
-        return self.link
+        return self.slug or f"Video {self.id}"
     
     class Meta:
         verbose_name = "Видео"
@@ -170,6 +170,7 @@ class Category(models.Model):
         null=True
     )
     is_active = models.BooleanField(default=True, verbose_name="Активна")
+    display_order = models.PositiveIntegerField(default=0, verbose_name="Порядок отображения")
 
     @property
     def is_root(self):
@@ -226,7 +227,6 @@ class Category(models.Model):
         unique_together = ('parent', 'slug')
 
 
-
 class AttributeType(models.Model):
     """Тип атрибута (например: Цвет, Количество, Ценовой диапазон)"""
     id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
@@ -262,7 +262,12 @@ class Attribute(models.Model):
     attribute_type = models.ForeignKey(AttributeType, on_delete=models.CASCADE, related_name='values', verbose_name="Тип атрибута")
     display_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="Отображаемое название")
     hex_code = models.CharField(max_length=7, blank=True, null=True, verbose_name="HEX код (для цветов)")
+    price_modifier = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Модификатор цены", help_text="Дополнительная стоимость (положительная) или скидка (отрицательная)")
+    
     is_active = models.BooleanField(default=True, verbose_name="Активно")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
         return self.display_name or self.value
@@ -270,7 +275,6 @@ class Attribute(models.Model):
     class Meta:
         verbose_name = "Значение атрибута"
         verbose_name_plural = "Значения атрибутов"
-    
 
 
 class ProductAttribute(models.Model):
@@ -282,8 +286,7 @@ class ProductAttribute(models.Model):
     class Meta:
         verbose_name = "Атрибут товара"
         verbose_name_plural = "Атрибуты товаров"
-        unique_together = ('product', 'attribute_value')
-
+        unique_together = ('product', 'attribute')
 
 
 class Product(models.Model):
@@ -314,20 +317,20 @@ class Product(models.Model):
 
     def get_all_attributes(self):
         """Получить все атрибуты продукта"""
-        return self.product_attributes.select_related('attribute_value__attribute_type').all()
+        return self.product_attributes.select_related('attribute__attribute_type').all()
     
-    def add_attribute(self, attribute_value):
+    def add_attribute(self, attribute):
         """Добавить атрибут к товару"""
         ProductAttribute.objects.get_or_create(
             product=self,
-            attribute_value=attribute_value
+            attribute=attribute
         )
     
-    def remove_attribute(self, attribute_value):
+    def remove_attribute(self, attribute):
         """Удалить атрибут у товара"""
         ProductAttribute.objects.filter(
             product=self,
-            attribute_value=attribute_value
+            attribute=attribute
         ).delete()
     
     def get_attributes_by_type(self, attribute_type_slug):
@@ -364,13 +367,27 @@ class Product(models.Model):
             all_categories.append(category)
         return list(set(all_categories))  # Убираем дубликаты
     
+    def get_price_with_attributes(self, selected_attributes):
+        """Рассчитать цену продукта с учетом выбранных атрибутов"""
+        base_price = self.price
+        
+        # Если есть акционная цена, используем её как базовую
+        if self.promotional_price is not None:
+            base_price = self.promotional_price
+        
+        # Добавляем модификаторы от выбранных атрибутов
+        total_modifier = 0
+        for attribute in selected_attributes:
+            total_modifier += attribute.price_modifier
+        
+        return base_price + total_modifier
+    
     def __str__(self):
         return self.name
     
     class Meta:
         verbose_name = "Продукт"
         verbose_name_plural = "Продукты"
-
 
 
 class PaymentMethod(models.Model):
@@ -384,14 +401,18 @@ class PaymentMethod(models.Model):
     )
     name = models.CharField(max_length=100, verbose_name="Название способа оплаты")
     description = models.TextField(blank=True, null=True, verbose_name="Описание")
+    
     is_active = models.BooleanField(default=True, verbose_name="Активен")
 
-    class Meta:
-        verbose_name = "Способ оплаты"
-        verbose_name_plural = "Способы оплаты"
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name
+    
+    class Meta:
+        verbose_name = "Способ оплаты"
+        verbose_name_plural = "Способы оплаты"
 
 
 class DeliveryMethod(models.Model):
@@ -406,9 +427,12 @@ class DeliveryMethod(models.Model):
     name = models.CharField(max_length=100, verbose_name="Название способа доставки")
     description = models.TextField(blank=True, null=True, verbose_name="Описание")
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Стоимость")
+    
     is_active = models.BooleanField(default=True, verbose_name="Активен")
-    delivery_time = models.CharField(max_length=100, blank=True, null=True, verbose_name="Время доставки")
-
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
     def __str__(self):
         return self.name
     
@@ -417,14 +441,18 @@ class DeliveryMethod(models.Model):
         verbose_name_plural = "Способы доставки"
 
 
-
 class Service(models.Model):
     id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
     name = models.CharField(max_length=255, verbose_name="Название услуги")
-    price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Цена BYN")
     description = models.TextField(blank=True, null=True, verbose_name="Описание")
+    
+    price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Цена BYN")
+    
     is_available = models.BooleanField(default=True, verbose_name="Доступна")
 
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
     @property
     def is_free(self):
         """Проверяет, является ли услуга бесплатной"""
@@ -448,6 +476,132 @@ class Service(models.Model):
         verbose_name = "Услуга"
         verbose_name_plural = "Услуги"
 
+
+class Cart(models.Model):
+    """Корзина для анонимных пользователей"""
+    id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
+    session_key = models.CharField(max_length=40, unique=True, verbose_name="Ключ сессии")
+    
+    # Служебные поля
+    ip_address = models.GenericIPAddressField(blank=True, null=True, verbose_name="IP адрес")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
+
+    @property
+    def total_items(self):
+        """Общее количество товаров в корзине"""
+        return sum(item.quantity for item in self.items.all())
+
+    @property
+    def total_amount(self):
+        """Общая сумма корзины"""
+        return sum(item.total_price for item in self.items.all())
+
+    def add_item(self, product, quantity=1, attributes=None):
+        """Добавить товар в корзину"""
+        cart_item, created = CartItem.objects.get_or_create(
+            cart=self,
+            product=product,
+            defaults={'quantity': quantity}
+        )
+        
+        if not created:
+            cart_item.quantity += quantity
+            cart_item.save()
+        
+        # Добавляем атрибуты если указаны
+        if attributes:
+            cart_item.attributes.set(attributes)
+        
+        return cart_item
+
+    def remove_item(self, product):
+        """Удалить товар из корзины"""
+        CartItem.objects.filter(cart=self, product=product).delete()
+
+    def clear(self):
+        """Очистить корзину"""
+        self.items.all().delete()
+
+    def to_order(self, order_data):
+        """Преобразовать корзину в заказ"""
+        if not self.items.exists():
+            raise ValueError("Корзина пуста")
+        
+        # Создаем заказ с переданными данными
+        order = Order.objects.create(
+            delivery_address=order_data['delivery_address'],
+            delivery_method=order_data['delivery_method'],
+            payment_method=order_data['payment_method'],
+            service=order_data['service'],
+            customer_name=order_data['customer_name'],
+            customer_phone=order_data['customer_phone'],
+            customer_email=order_data.get('customer_email'),
+            notes=order_data.get('notes'),
+            personal_data_consent=order_data['personal_data_consent'],
+            ip_address=self.ip_address,
+            total_amount=self.total_amount
+        )
+        
+        # Переносим товары из корзины в заказ
+        for cart_item in self.items.all():
+            OrderItem.objects.create(
+                order=order,
+                product=cart_item.product,
+                quantity=cart_item.quantity,
+                price=cart_item.product.price,
+                item_name=cart_item.product.name,
+                item_description=cart_item.product.description
+            )
+        
+        # Очищаем корзину
+        self.clear()
+        
+        return order
+    
+
+    def __str__(self):
+        return f"Корзина {self.session_key}"
+    
+    class Meta:
+        verbose_name = "Корзина"
+        verbose_name_plural = "Корзины"
+        ordering = ("-created_at",)
+
+
+class CartItem(models.Model):
+    """Товар в корзине"""
+    id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
+    cart = models.ForeignKey(Cart, on_delete=models.CASCADE, related_name='items', verbose_name="Корзина")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, verbose_name="Продукт")
+    quantity = models.PositiveIntegerField(default=1, verbose_name="Количество")
+    
+    # Атрибуты товара (если выбраны)
+    attributes = models.ManyToManyField(Attribute, blank=True, verbose_name="Атрибуты")
+    
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата добавления")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
+
+    
+    @property
+    def total_price(self):
+        """Общая цена товара с учетом количества"""
+        return self.price_with_attributes * self.quantity
+
+    @property
+    def price_with_attributes(self):
+        """Цена товара с учетом выбранных атрибутов"""
+        if self.attributes.exists():
+            return self.product.get_price_with_attributes(self.attributes.all())
+        return self.product.price
+    
+    def __str__(self):
+        return f"{self.product.name} x{self.quantity}"
+    
+    class Meta:
+        verbose_name = "Товар в корзине"
+        verbose_name_plural = "Товары в корзине"
+        unique_together = ('cart', 'product')
 
 
 class Order(models.Model):
@@ -574,7 +728,6 @@ class OrderItem(models.Model):
         verbose_name_plural = "Позиции заказа"
 
 
-
 class Review(models.Model):
     id = models.CharField(
         default=generate_uuid,
@@ -621,7 +774,6 @@ class Review(models.Model):
         verbose_name = "Отзывы"
         verbose_name_plural = "Отзыв"
         unique_together = (('company', 'date', 'text'),)
-
 
 
 class Contact(models.Model):
