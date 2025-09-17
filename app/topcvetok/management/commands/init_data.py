@@ -1,9 +1,8 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
-from topcvetok.models import Category, AttributeType, Attribute, Service, DeliveryMethod, PaymentMethod
+from topcvetok.models import Category, AttributeType, Attribute, Service, DeliveryMethod, PaymentMethod, Product, Review
 from topcvetok.enums import DeliveryType, AttributeFilterType
 from decimal import Decimal
-from django.contrib.auth import get_user_model
 
 
 class Command(BaseCommand):
@@ -22,6 +21,8 @@ class Command(BaseCommand):
                 self.create_services()
                 self.create_delivery_methods()
                 self.create_payment_methods()
+                self.create_products()
+                self.create_reviews()
                 
                 self.stdout.write(
                     self.style.SUCCESS('Инициализация данных завершена успешно!')
@@ -428,3 +429,200 @@ class Command(BaseCommand):
             )
             if created:
                 self.stdout.write(f'Создан способ оплаты: {payment.name}')
+
+    def create_products(self):
+        """Создает тестовые продукты"""
+        products_data = [
+            {
+                'name': 'Букет роз "Классика"',
+                'slug': 'buket-roz-klassika',
+                'description': 'Классический букет из красных роз. Идеально подходит для романтических моментов.',
+                'price': Decimal('45.00'),
+                'is_available': True,
+                'categories': ['rozy'],
+                'attributes': ['krasnye', '11', 'monobukety', 's-rozoi', '45-sm']
+            },
+            {
+                'name': 'Букет тюльпанов "Весенний"',
+                'slug': 'buket-tyulpanov-vesenniy',
+                'description': 'Яркий весенний букет из разноцветных тюльпанов. Символ весны и обновления.',
+                'price': Decimal('35.00'),
+                'is_available': True,
+                'categories': ['tyulpany'],
+                'attributes': ['raduzhnye', '15', 'monobukety', 's-zelenyu', '50-sm']
+            },
+            {
+                'name': 'Букет хризантем "Осенний"',
+                'slug': 'buket-khrizantem-osennyy',
+                'description': 'Теплый осенний букет из хризантем различных оттенков. Создает уютную атмосферу.',
+                'price': Decimal('40.00'),
+                'is_available': True,
+                'categories': ['khrizantemy'],
+                'attributes': ['zheltye', '13', 'monobukety', 's-khrizantemoi', '60-sm']
+            },
+            {
+                'name': 'Букет гербер "Солнечный"',
+                'slug': 'buket-gerber-solnechnyy',
+                'description': 'Яркий и жизнерадостный букет из гербер. Поднимает настроение в любое время года.',
+                'price': Decimal('38.00'),
+                'is_available': True,
+                'categories': ['gerbery'],
+                'attributes': ['zheltye', '9', 'monobukety', 's-gerberom', '45-sm']
+            },
+            {
+                'name': 'Букет пионов "Нежность"',
+                'slug': 'buket-pionov-nezhnost',
+                'description': 'Нежный букет из пионов. Символ роскоши и элегантности.',
+                'price': Decimal('65.00'),
+                'is_available': True,
+                'categories': ['piony'],
+                'attributes': ['rozovye', '7', 'vip-bukety', 's-pionom', '70-sm']
+            },
+            {
+                'name': 'Букет лилий "Королевский"',
+                'slug': 'buket-liliy-korolevskiy',
+                'description': 'Величественный букет из белых лилий. Символ чистоты и благородства.',
+                'price': Decimal('55.00'),
+                'is_available': True,
+                'categories': ['lilii'],
+                'attributes': ['belye', '5', 'vip-bukety', 's-zelenyu', '80-sm']
+            },
+            {
+                'name': 'Букет орхидей "Экзотика"',
+                'slug': 'buket-orkhidey-ekzotika',
+                'description': 'Экзотический букет из орхидей. Редкая красота и изысканность.',
+                'price': Decimal('85.00'),
+                'is_available': True,
+                'categories': ['orkhidei'],
+                'attributes': ['sinie', '3', 'vip-bukety', 's-zelenyu', '90-sm']
+            },
+            {
+                'name': 'Букет гвоздик "Праздничный"',
+                'slug': 'buket-gvozdik-prazdnichnyy',
+                'description': 'Яркий праздничный букет из гвоздик. Идеален для торжественных моментов.',
+                'price': Decimal('30.00'),
+                'is_available': True,
+                'categories': ['gvozdiki'],
+                'attributes': ['krasnye', '17', 'monobukety', 's-gvozdikoi', '50-sm']
+            },
+            {
+                'name': 'Смешанный букет "Гармония"',
+                'slug': 'smeshannyy-buket-garmoniya',
+                'description': 'Гармоничный букет из различных цветов. Создает неповторимую композицию.',
+                'price': Decimal('50.00'),
+                'is_available': True,
+                'categories': ['smeshannye-bukety'],
+                'attributes': ['miks', '21', 'sovremennaya-floristika', 's-rozoi', '60-sm']
+            },
+            {
+                'name': 'Букет ирисов "Весенний"',
+                'slug': 'buket-irisov-vesenniy',
+                'description': 'Нежный весенний букет из ирисов. Символ надежды и веры.',
+                'price': Decimal('42.00'),
+                'is_available': True,
+                'categories': ['irisy'],
+                'attributes': ['sinie', '11', 'monobukety', 's-zelenyu', '55-sm']
+            },
+            {
+                'name': 'Букет альстромерий "Тропический"',
+                'slug': 'buket-alstromeriy-tropicheskiy',
+                'description': 'Яркий тропический букет из альстромерий. Приносит тепло и радость.',
+                'price': Decimal('48.00'),
+                'is_available': True,
+                'categories': ['alstromerii'],
+                'attributes': ['raduzhnye', '19', 'sovremennaya-floristika', 's-alstromeriei', '65-sm']
+            },
+            {
+                'name': 'Букет антуриумов "Современный"',
+                'slug': 'buket-anturiumov-sovremennyy',
+                'description': 'Современный букет из антуриумов. Стильный и элегантный подарок.',
+                'price': Decimal('75.00'),
+                'is_available': True,
+                'categories': ['anturiumy'],
+                'attributes': ['krasnye', '5', 'sovremennaya-floristika', 's-zelenyu', '70-sm']
+            }
+        ]
+        
+        for product_data in products_data:
+            # Получаем категории
+            categories = Category.objects.filter(slug__in=product_data['categories'])
+            
+            # Создаем продукт
+            product, created = Product.objects.get_or_create(
+                slug=product_data['slug'],
+                defaults={
+                    'name': product_data['name'],
+                    'description': product_data['description'],
+                    'price': product_data['price'],
+                    'is_available': product_data['is_available']
+                }
+            )
+            
+            if created:
+                # Добавляем категории
+                product.categories.set(categories)
+                
+                # Получаем и добавляем атрибуты
+                attributes = Attribute.objects.filter(slug__in=product_data['attributes'])
+                for attr in attributes:
+                    product.add_attribute(attr)
+                
+                self.stdout.write(f'Создан продукт: {product.name}')
+
+    def create_reviews(self):
+        """Создает тестовые отзывы"""
+        from datetime import datetime, timedelta
+        import random
+        
+        reviews_data = [
+            {
+                'company': 'Анна Петрова',
+                'text': 'Потрясающий букет! Цветы свежие, красиво упакованы. Доставили вовремя. Очень довольна!',
+                'stars': 5,
+                'answer': 'Спасибо за ваш отзыв! Мы рады, что вам понравился наш сервис.',
+                'date': datetime.now() - timedelta(days=random.randint(1, 30)),
+                'icon_url': 'https://example.com/avatar1.jpg'
+            },
+            {
+                'company': 'Михаил Иванов',
+                'text': 'Хороший сервис, качественные цветы. Рекомендую!',
+                'stars': 4,
+                'answer': 'Благодарим за отзыв! Будем рады видеть вас снова.',
+                'date': datetime.now() - timedelta(days=random.randint(1, 30)),
+                'icon_url': 'https://example.com/avatar2.jpg'
+            },
+            {
+                'company': 'Елена Смирнова',
+                'text': 'Заказывала букет для мамы на день рождения. Она была в восторге! Спасибо за прекрасную работу.',
+                'stars': 5,
+                'answer': 'Очень приятно слышать! Мы всегда стараемся сделать наши букеты особенными.',
+                'date': datetime.now() - timedelta(days=random.randint(1, 30)),
+                'icon_url': 'https://example.com/avatar3.jpg'
+            },
+            {
+                'company': 'Дмитрий Козлов',
+                'text': 'Отличное качество цветов и быстрая доставка. Буду заказывать еще!',
+                'stars': 5,
+                'answer': 'Спасибо за доверие! Ждем ваших новых заказов.',
+                'date': datetime.now() - timedelta(days=random.randint(1, 30)),
+                'icon_url': 'https://example.com/avatar4.jpg'
+            },
+            {
+                'company': 'Ольга Волкова',
+                'text': 'Красивый букет, но доставка была немного задержана. В целом довольна.',
+                'stars': 4,
+                'answer': 'Спасибо за отзыв! Мы работаем над улучшением логистики.',
+                'date': datetime.now() - timedelta(days=random.randint(1, 30)),
+                'icon_url': 'https://example.com/avatar5.jpg'
+            }
+        ]
+        
+        for review_data in reviews_data:
+            review, created = Review.objects.get_or_create(
+                company=review_data['company'],
+                date=review_data['date'],
+                text=review_data['text'],
+                defaults=review_data
+            )
+            if created:
+                self.stdout.write(f'Создан отзыв от: {review.company}')
