@@ -3,25 +3,16 @@ from rest_framework.routers import DefaultRouter
 
 from topcvetok import views
 
-# Роутер для админ-панели (требует авторизации)
-admin_router = DefaultRouter(trailing_slash=False)
-admin_router.register(r"attribute-types", views.AttributeTypeViewSet, basename="admin-attribute-types")
-admin_router.register(r"attributes", views.AttributeViewSet, basename="admin-attributes")
-admin_router.register(r"product-attributes", views.ProductAttributeViewSet, basename="admin-product-attributes")
-admin_router.register(r"services", views.ServiceViewSet, basename="admin-services")
-admin_router.register(r"payment-methods", views.PaymentMethodViewSet, basename="admin-payment-methods")
-admin_router.register(r"delivery-methods", views.DeliveryMethodViewSet, basename="admin-delivery-methods")
-admin_router.register(r"orders", views.OrderViewSet, basename="admin-orders")
-admin_router.register(r"reviews", views.ReviewViewSet, basename="admin-reviews")
-
-# Роутер для публичного API (без авторизации)
-public_router = DefaultRouter(trailing_slash=False)
-public_router.register(r"products", views.ProductViewSet, basename="products")
-public_router.register(r"attribute-types", views.AttributeTypeViewSet, basename="attribute-types")
-public_router.register(r"attributes", views.AttributeViewSet, basename="attributes")
-public_router.register(r"services", views.PublicServiceViewSet, basename="public-services")
-public_router.register(r"payment-methods", views.PublicPaymentMethodViewSet, basename="public-payment-methods")
-public_router.register(r"delivery-methods", views.PublicDeliveryMethodViewSet, basename="public-delivery-methods")
+router = DefaultRouter(trailing_slash=False)
+router.register(r"attribute-types", views.AttributeTypeViewSet, basename="attribute-types")
+router.register(r"attributes", views.AttributeViewSet, basename="attributes")
+router.register(r"product-attributes", views.ProductAttributeViewSet, basename="product-attributes")
+router.register(r"products", views.ProductViewSet, basename="products")
+router.register(r"services", views.ServiceViewSet, basename="services")
+router.register(r"payment-methods", views.PaymentMethodViewSet, basename="payment-methods")
+router.register(r"delivery-methods", views.DeliveryMethodViewSet, basename="delivery-methods")
+router.register(r"orders", views.OrderViewSet, basename="orders")
+router.register(r"reviews", views.ReviewViewSet, basename="reviews")
 
 urlpatterns = [
     # Авторизация
@@ -40,9 +31,5 @@ urlpatterns = [
     path("orders/create/", views.OrderCreateView.as_view(), name="order-create"),
     
     
-    # Админ API
-    path("admin/", include(admin_router.urls)),
-    
-    # Публичный API
-    path("", include(public_router.urls)),
+    path("", include(router.urls)),
 ]

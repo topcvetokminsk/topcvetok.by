@@ -13,9 +13,9 @@ from topcvetok import serializers as auth_serializers
 from topcvetok import models
 from topcvetok.filters import ProductFilter, AttributeFilter, AttributeTypeFilter, ServiceFilter
 from topcvetok.enums import DeliveryType, AttributeFilterType, ReviewRating
+from topcvetok.permissions import CustomDjangoModelPermission
 
 
-# Авторизация
 @extend_schema_view(
     post=extend_schema(
         description="Авторизоваться с помощью логина и пароля.",
@@ -71,124 +71,120 @@ class Logout(APIView):
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
 
-# Админ API
 class AttributeTypeViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы с типами атрибутов"""
     queryset = models.AttributeType.objects.all()
     serializer_class = auth_serializers.AttributeTypeSerializer
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
     filter_backends = [DjangoFilterBackend]
     filterset_class = AttributeTypeFilter
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny, )
 
+        return super(self.__class__, self).get_permissions()
+    
 
 class AttributeViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы с атрибутами"""
     queryset = models.Attribute.objects.all()
     serializer_class = auth_serializers.AttributeSerializer
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
     filter_backends = [DjangoFilterBackend]
     filterset_class = AttributeFilter
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny, )
+
+        return super(self.__class__, self).get_permissions()
 
 
 class ProductAttributeViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы с атрибутами продуктов"""
     queryset = models.ProductAttribute.objects.all()
     serializer_class = auth_serializers.ProductAttributeSerializer
     permission_classes = (IsAuthenticated,)
 
 
-class ServiceViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы с услугами"""
-    queryset = models.Service.objects.all()
-    serializer_class = auth_serializers.ServiceSerializer
-    permission_classes = (IsAuthenticated,)
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = ServiceFilter
-
-
-class PaymentMethodViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы со способами оплаты"""
-    queryset = models.PaymentMethod.objects.all()
-    serializer_class = auth_serializers.PaymentMethodSerializer
-    permission_classes = (IsAuthenticated,)
-
-
-class DeliveryMethodViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы со способами доставки"""
-    queryset = models.DeliveryMethod.objects.all()
-    serializer_class = auth_serializers.DeliveryMethodSerializer
-    permission_classes = (IsAuthenticated,)
-
-
-class OrderViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы с заказами"""
-    queryset = models.Order.objects.all()
-    serializer_class = auth_serializers.OrderSerializer
-    permission_classes = (IsAuthenticated,)
-
-
-# Публичный API
-class ReviewViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet для работы с отзывами"""
-    queryset = models.Review.objects.all()
-    serializer_class = auth_serializers.ReviewSerializer
-    permission_classes = (AllowAny,)
-
-
-class ProductViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet для работы с продуктами"""
-    queryset = models.Product.objects.filter(is_available=True).prefetch_related(
-        'categories', 'product_attributes__attribute__attribute_type'
-    )
+class ProductViewSet(viewsets.ModelViewSet):
+    queryset = models.Product.objects.all()
     serializer_class = auth_serializers.ProductSerializer
-    permission_classes = (AllowAny,)
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description']
     filterset_class = ProductFilter
     ordering_fields = ['name', 'price', 'created_at']
     ordering = ['name']
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny, )
+
+        return super(self.__class__, self).get_permissions()
 
 
-class AttributeTypeViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet для работы с типами атрибутов"""
-    queryset = models.AttributeType.objects.filter(is_active=True, is_filterable=True).prefetch_related('values')
-    serializer_class = auth_serializers.AttributeTypeSerializer
-    permission_classes = (AllowAny,)
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = AttributeTypeFilter
-
-
-class AttributeViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet для работы с атрибутами"""
-    queryset = models.Attribute.objects.filter(is_active=True).select_related('attribute_type')
-    serializer_class = auth_serializers.AttributeSerializer
-    permission_classes = (AllowAny,)
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = AttributeFilter
-
-
-class PublicServiceViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = (AllowAny,)
-    queryset = models.Service.objects.filter(is_available=True)
+class ServiceViewSet(viewsets.ModelViewSet):
+    queryset = models.Service.objects.all()
     serializer_class = auth_serializers.ServiceSerializer
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description']
     filterset_class = ServiceFilter
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny, )
+
+        return super(self.__class__, self).get_permissions()
 
 
-class PublicPaymentMethodViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = (AllowAny,)
-    queryset = models.PaymentMethod.objects.filter(is_active=True)
+class PaymentMethodViewSet(viewsets.ModelViewSet):
+    queryset = models.PaymentMethod.objects.all()
     serializer_class = auth_serializers.PaymentMethodSerializer
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny, )
+
+        return super(self.__class__, self).get_permissions()
 
 
-class PublicDeliveryMethodViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = (AllowAny,)
-    queryset = models.DeliveryMethod.objects.filter(is_active=True)
+class DeliveryMethodViewSet(viewsets.ModelViewSet):
+    queryset = models.DeliveryMethod.objects.all()
     serializer_class = auth_serializers.DeliveryMethodSerializer
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny, )
+
+        return super(self.__class__, self).get_permissions()
 
 
-# Заказы
+class OrderViewSet(viewsets.ModelViewSet):
+    queryset = models.Order.objects.all()
+    serializer_class = auth_serializers.OrderSerializer
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny, )
+
+        return super(self.__class__, self).get_permissions()
+
+
+class ReviewViewSet(viewsets.ModelViewSet):
+    queryset = models.Review.objects.all()
+    serializer_class = auth_serializers.ReviewSerializer
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny,)
+
+        return super(self.__class__, self).get_permissions()
+
+
 @extend_schema_view(
     post=extend_schema(
         description="Создать новый заказ с товарами.",
@@ -197,7 +193,6 @@ class PublicDeliveryMethodViewSet(viewsets.ReadOnlyModelViewSet):
     ),
 )
 class OrderCreateView(APIView):
-    """API для создания заказов с товарами"""
     permission_classes = (AllowAny,)
     
     def post(self, request):
@@ -336,11 +331,9 @@ class CalculatePriceView(APIView):
     ),
 )
 class CalculateDeliveryPriceView(APIView):
-    """API для расчета стоимости доставки"""
     permission_classes = (AllowAny,)
     
     def post(self, request):
-        """Рассчитывает стоимость доставки"""
         delivery_method_id = request.data.get('delivery_method_id')
         order_amount = request.data.get('order_amount', 0)
         delivery_time = request.data.get('delivery_time')  # ISO datetime string
@@ -391,12 +384,9 @@ class CalculateDeliveryPriceView(APIView):
     ),
 )
 class FilterOptionsView(APIView):
-    """API для получения опций фильтрации"""
     permission_classes = (AllowAny,)
     
     def get(self, request):
-        """Возвращает опции для фильтрации"""
-        # Получаем типы атрибутов для фильтрации
         attribute_types = models.AttributeType.objects.filter(
             is_active=True, is_filterable=True
         ).prefetch_related('attribute_set')
@@ -430,7 +420,6 @@ class FilterOptionsView(APIView):
     ),
 )
 class EnumsView(APIView):
-    """API для получения енамов"""
     permission_classes = (AllowAny,)
     
     def get(self, request):
