@@ -27,9 +27,5 @@ urlpatterns = [
     path("calculate-price/", views.CalculatePriceView.as_view(), name="calculate-price"),
     path("calculate-delivery-price/", views.CalculateDeliveryPriceView.as_view(), name="calculate-delivery-price"),
     
-    # Заказы
-    path("orders/create/", views.OrderCreateView.as_view(), name="order-create"),
-    
-    
     path("", include(router.urls)),
 ]
