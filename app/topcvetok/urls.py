@@ -13,6 +13,9 @@ router.register(r"payment-methods", views.PaymentMethodViewSet, basename="paymen
 router.register(r"delivery-methods", views.DeliveryMethodViewSet, basename="delivery-methods")
 router.register(r"orders", views.OrderViewSet, basename="orders")
 router.register(r"reviews", views.ReviewViewSet, basename="reviews")
+router.register(r"banners", views.BannerViewSet, basename="banners")
+router.register(r"videos", views.VideoViewSet, basename="videos")
+router.register(r"contacts", views.ContactViewSet, basename="contacts")
 
 urlpatterns = [
     # Авторизация

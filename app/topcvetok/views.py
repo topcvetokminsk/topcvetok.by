@@ -1,11 +1,12 @@
 from django.contrib.auth import authenticate
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils.dateparse import parse_datetime
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, status, viewsets, parsers
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.parsers import JSONParser
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
@@ -310,6 +311,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     filterset_class = ProductFilter
     ordering_fields = ['name', 'price', 'created_at']
     ordering = ['name']
+    parser_classes = (parsers.MultiPartParser, JSONParser)
     
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
@@ -891,6 +893,199 @@ class FilterOptionsView(APIView):
             }
         
         return Response(filter_options)
+
+
+@extend_schema_view(
+    get=extend_schema(
+        summary="Получить справочники",
+        description="Возвращает все доступные справочники (енумы) для фронтенда. "
+                   "Включает типы доставки, статусы заказов, типы фильтров атрибутов и рейтинги отзывов.",
+        tags=["Справочники"],
+        responses={
+            200: {
+                "description": "Успешное получение справочников",
+                "content": {
+                    "application/json": {
+                        "type": "object",
+                        "properties": {
+                            "delivery_types": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "value": {"type": "string", "description": "Значение енума"},
+                                        "label": {"type": "string", "description": "Отображаемое название"}
+                                    }
+                                },
+                                "description": "Типы доставки (Минск, Беларусь, самовывоз)"
+                            },
+                            "attribute_filter_types": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "value": {"type": "string"},
+                                        "label": {"type": "string"}
+                                    }
+                                },
+                                "description": "Типы фильтров атрибутов (checkbox, select, range и т.д.)"
+                            },
+                            "review_ratings": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "value": {"type": "integer"},
+                                        "label": {"type": "string"}
+                                    }
+                                },
+                                "description": "Рейтинги отзывов (1-5 звезд)"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ),
+)
+@extend_schema_view(
+    list=extend_schema(
+        summary="Получить список баннеров",
+        description="Возвращает список всех активных баннеров для отображения на сайте. "
+                   "Включает изображения, заголовки, описания и ссылки.",
+        tags=["Контент"],
+    ),
+    retrieve=extend_schema(
+        summary="Получить баннер по ID",
+        description="Возвращает детальную информацию о конкретном баннере.",
+        tags=["Контент"],
+    ),
+    create=extend_schema(
+        summary="Создать новый баннер",
+        description="Создает новый баннер для отображения на сайте. Требует права администратора.",
+        tags=["Контент"],
+    ),
+    update=extend_schema(
+        summary="Обновить баннер",
+        description="Полностью обновляет информацию о баннере. Требует права администратора.",
+        tags=["Контент"],
+    ),
+    partial_update=extend_schema(
+        summary="Частично обновить баннер",
+        description="Частично обновляет информацию о баннере. Требует права администратора.",
+        tags=["Контент"],
+    ),
+    destroy=extend_schema(
+        summary="Удалить баннер",
+        description="Удаляет баннер. Требует права администратора.",
+        tags=["Контент"],
+    ),
+)
+class BannerViewSet(viewsets.ModelViewSet):
+    """ViewSet для работы с баннерами"""
+    queryset = models.Banner.objects.all()
+    serializer_class = auth_serializers.BannerSerializer
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    parser_classes = (parsers.MultiPartParser, JSONParser)
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny,)
+
+        return super(self.__class__, self).get_permissions()
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="Получить список видео",
+        description="Возвращает список всех активных видео для отображения на сайте. "
+                   "Включает видеофайлы, превью, заголовки и описания.",
+        tags=["Контент"],
+    ),
+    retrieve=extend_schema(
+        summary="Получить видео по ID",
+        description="Возвращает детальную информацию о конкретном видео.",
+        tags=["Контент"],
+    ),
+    create=extend_schema(
+        summary="Создать новое видео",
+        description="Создает новое видео для отображения на сайте. Требует права администратора.",
+        tags=["Контент"],
+    ),
+    update=extend_schema(
+        summary="Обновить видео",
+        description="Полностью обновляет информацию о видео. Требует права администратора.",
+        tags=["Контент"],
+    ),
+    partial_update=extend_schema(
+        summary="Частично обновить видео",
+        description="Частично обновляет информацию о видео. Требует права администратора.",
+        tags=["Контент"],
+    ),
+    destroy=extend_schema(
+        summary="Удалить видео",
+        description="Удаляет видео. Требует права администратора.",
+        tags=["Контент"],
+    ),
+)
+class VideoViewSet(viewsets.ModelViewSet):
+    """ViewSet для работы с видео"""
+    queryset = models.Video.objects.all()
+    serializer_class = auth_serializers.VideoSerializer
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    parser_classes = (parsers.MultiPartParser, JSONParser)
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny,)
+
+        return super(self.__class__, self).get_permissions()
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="Получить список контактов",
+        description="Возвращает список всех контактных данных компании. "
+                   "Включает адреса, телефоны, email, время работы и другую контактную информацию.",
+        tags=["Контакты"],
+    ),
+    retrieve=extend_schema(
+        summary="Получить контакт по ID",
+        description="Возвращает детальную информацию о конкретном контакте.",
+        tags=["Контакты"],
+    ),
+    create=extend_schema(
+        summary="Создать новый контакт",
+        description="Создает новую контактную информацию. Требует права администратора.",
+        tags=["Контакты"],
+    ),
+    update=extend_schema(
+        summary="Обновить контакт",
+        description="Полностью обновляет контактную информацию. Требует права администратора.",
+        tags=["Контакты"],
+    ),
+    partial_update=extend_schema(
+        summary="Частично обновить контакт",
+        description="Частично обновляет контактную информацию. Требует права администратора.",
+        tags=["Контакты"],
+    ),
+    destroy=extend_schema(
+        summary="Удалить контакт",
+        description="Удаляет контактную информацию. Требует права администратора.",
+        tags=["Контакты"],
+    ),
+)
+class ContactViewSet(viewsets.ModelViewSet):
+    """ViewSet для работы с контактами"""
+    queryset = models.Contact.objects.all()
+    serializer_class = auth_serializers.ContactSerializer
+    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny,)
+
+        return super(self.__class__, self).get_permissions()
 
 
 @extend_schema_view(
