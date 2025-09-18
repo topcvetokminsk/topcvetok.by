@@ -40,19 +40,11 @@ class CategoryAdmin(admin.ModelAdmin):
     level_display.short_description = "Уровень"
 
 
-@admin.register(models.AttributeType)
-class AttributeTypeAdmin(admin.ModelAdmin):
-    list_display = [field.name for field in models.AttributeType._meta.fields]
-    search_fields = [field.name for field in models.AttributeType._meta.fields]
-    list_filter = ['is_active', 'is_filterable']
-    readonly_fields = ['id']
-
-
 @admin.register(models.Attribute)
 class AttributeAdmin(admin.ModelAdmin):
     list_display = [field.name for field in models.Attribute._meta.fields]
     search_fields = [field.name for field in models.Attribute._meta.fields]
-    list_filter = ['attribute_type', 'is_active']
+    list_filter = ['is_active']
     readonly_fields = ['id']
 
 

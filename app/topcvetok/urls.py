@@ -4,8 +4,8 @@ from rest_framework.routers import DefaultRouter
 from topcvetok import views
 
 router = DefaultRouter(trailing_slash=False)
-router.register(r"attribute-types", views.AttributeTypeViewSet, basename="attribute-types")
 router.register(r"attributes", views.AttributeViewSet, basename="attributes")
+router.register(r"categories", views.CategoryViewSet, basename="categories")
 router.register(r"product-attributes", views.ProductAttributeViewSet, basename="product-attributes")
 router.register(r"products", views.ProductViewSet, basename="products")
 router.register(r"services", views.ServiceViewSet, basename="services")
@@ -23,7 +23,6 @@ urlpatterns = [
     path("logout/", views.Logout.as_view()),
     
     # Фильтры
-    path("filter-options/", views.FilterOptionsView.as_view(), name="filter-options"),
     path("enums/", views.EnumsView.as_view(), name="enums"),
     
     # Цены

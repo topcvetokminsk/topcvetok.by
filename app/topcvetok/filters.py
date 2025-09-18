@@ -32,11 +32,11 @@ class ProductFilter(django_filters.FilterSet):
         if not value:
             return queryset
         
-        # Поддерживаем как slug, так и display_name
+        # Ищем атрибуты по display_name='цвет' и значению
         color_values = models.Attribute.objects.filter(
-            attribute_type__slug='color'
+            display_name='цвет'
         ).filter(
-            Q(display_name__icontains=value)
+            Q(value__icontains=value) | Q(slug__icontains=value)
         )
         
         if color_values.exists():
@@ -48,9 +48,11 @@ class ProductFilter(django_filters.FilterSet):
         if not value:
             return queryset
         
+        # Ищем атрибуты по display_name='количество' и значению
         quantity_values = models.Attribute.objects.filter(
-            attribute_type__slug='quantity',
-            display_name__icontains=value
+            display_name='количество'
+        ).filter(
+            Q(value__icontains=value) | Q(slug__icontains=value)
         )
         
         if quantity_values.exists():
@@ -105,7 +107,7 @@ class ProductFilter(django_filters.FilterSet):
         """Универсальный фильтр по атрибутам
         
         Параметры:
-        - value: строка вида "color:red,quantity:5" или "color:red|quantity:5"
+        - value: строка вида "красный,5" или "красный|5" (поиск по value или slug)
         - разделители: запятая (И) или вертикальная черта (ИЛИ)
         """
         if not value:
@@ -115,52 +117,36 @@ class ProductFilter(django_filters.FilterSet):
         if '|' in value:
             # ИЛИ - любой из атрибутов
             conditions = Q()
-            for attr_pair in value.split('|'):
-                if ':' in attr_pair:
-                    attr_type, attr_value = attr_pair.split(':', 1)
-                    attr_values = models.Attribute.objects.filter(
-                        attribute_type__slug=attr_type,
-                        display_name__icontains=attr_value
-                    )
-                    if attr_values.exists():
-                        conditions |= Q(product_attributes__attribute__in=attr_values)
+            for attr_value in value.split('|'):
+                attr_values = models.Attribute.objects.filter(
+                    Q(value__icontains=attr_value.strip()) | Q(slug__icontains=attr_value.strip())
+                )
+                if attr_values.exists():
+                    conditions |= Q(product_attributes__attribute__in=attr_values)
             return queryset.filter(conditions)
         else:
             # И - все атрибуты должны совпадать
-            for attr_pair in value.split(','):
-                if ':' in attr_pair:
-                    attr_type, attr_value = attr_pair.split(':', 1)
-                    attr_values = models.Attribute.objects.filter(
-                        attribute_type__slug=attr_type,
-                        display_name__icontains=attr_value
-                    )
-                    if attr_values.exists():
-                        queryset = queryset.filter(product_attributes__attribute__in=attr_values)
-                    else:
-                        return queryset.none()
+            for attr_value in value.split(','):
+                attr_values = models.Attribute.objects.filter(
+                    Q(value__icontains=attr_value.strip()) | Q(slug__icontains=attr_value.strip())
+                )
+                if attr_values.exists():
+                    queryset = queryset.filter(product_attributes__attribute__in=attr_values)
+                else:
+                    return queryset.none()
             return queryset
 
 
 class AttributeFilter(django_filters.FilterSet):
     """Фильтр для атрибутов"""
     
-    attribute_type = django_filters.CharFilter(field_name='attribute_type__slug')
+    slug = django_filters.CharFilter(field_name='slug')
+    display_name = django_filters.CharFilter(field_name='display_name', lookup_expr='icontains')
     is_active = django_filters.BooleanFilter(field_name='is_active')
     
     class Meta:
         model = models.Attribute
-        fields = ['attribute_type', 'is_active']
-
-
-class AttributeTypeFilter(django_filters.FilterSet):
-    """Фильтр для типов атрибутов"""
-    
-    is_filterable = django_filters.BooleanFilter(field_name='is_filterable')
-    is_active = django_filters.BooleanFilter(field_name='is_active')
-    
-    class Meta:
-        model = models.AttributeType
-        fields = ['is_filterable', 'is_active']
+        fields = ['slug', 'display_name', 'is_active']
 
 
 class ServiceFilter(django_filters.FilterSet):
@@ -184,12 +170,12 @@ class ServiceFilter(django_filters.FilterSet):
         if value:
             # Только бесплатные услуги
             return queryset.filter(
-                models.Q(price__isnull=True) | models.Q(price=0)
+                Q(price__isnull=True) | Q(price=0)
             )
         else:
             # Только платные услуги
             return queryset.filter(
-                models.Q(price__isnull=False) & ~models.Q(price=0)
+                Q(price__isnull=False) & ~Q(price=0)
             )
 
 

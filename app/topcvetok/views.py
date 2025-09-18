@@ -12,9 +12,8 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from topcvetok import serializers as auth_serializers
 from topcvetok import models
-from topcvetok.filters import ProductFilter, AttributeFilter, AttributeTypeFilter, ServiceFilter
+from topcvetok.filters import ProductFilter, AttributeFilter, ServiceFilter, CategoryFilter
 from topcvetok.enums import DeliveryType, AttributeFilterType, ReviewRating
-from topcvetok.permissions import CustomDjangoModelPermission
 
 
 @extend_schema_view(
@@ -128,54 +127,6 @@ class Logout(APIView):
 
 @extend_schema_view(
     list=extend_schema(
-        summary="Получить список типов атрибутов",
-        description="Возвращает список всех активных типов атрибутов для фильтрации товаров. "
-                   "Включает типы: Цвет, Количество, По типу, По составу, Вариация, По цене.",
-        tags=["Атрибуты"],
-    ),
-    retrieve=extend_schema(
-        summary="Получить тип атрибута по ID",
-        description="Возвращает детальную информацию о конкретном типе атрибута.",
-        tags=["Атрибуты"],
-    ),
-    create=extend_schema(
-        summary="Создать новый тип атрибута",
-        description="Создает новый тип атрибута для товаров. Требует права администратора.",
-        tags=["Атрибуты"],
-    ),
-    update=extend_schema(
-        summary="Обновить тип атрибута",
-        description="Полностью обновляет информацию о типе атрибута. Требует права администратора.",
-        tags=["Атрибуты"],
-    ),
-    partial_update=extend_schema(
-        summary="Частично обновить тип атрибута",
-        description="Частично обновляет информацию о типе атрибута. Требует права администратора.",
-        tags=["Атрибуты"],
-    ),
-    destroy=extend_schema(
-        summary="Удалить тип атрибута",
-        description="Удаляет тип атрибута. Требует права администратора.",
-        tags=["Атрибуты"],
-    ),
-)
-class AttributeTypeViewSet(viewsets.ModelViewSet):
-    """ViewSet для работы с типами атрибутов"""
-    queryset = models.AttributeType.objects.all()
-    serializer_class = auth_serializers.AttributeTypeSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = AttributeTypeFilter
-    
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny, )
-
-        return super(self.__class__, self).get_permissions()
-    
-
-@extend_schema_view(
-    list=extend_schema(
         summary="Получить список атрибутов",
         description="Возвращает список всех активных атрибутов товаров. "
                    "Включает цвета, количества, типы букетов, составы, вариации и ценовые диапазоны.",
@@ -211,13 +162,66 @@ class AttributeViewSet(viewsets.ModelViewSet):
     """ViewSet для работы с атрибутами"""
     queryset = models.Attribute.objects.all()
     serializer_class = auth_serializers.AttributeSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     filter_backends = [DjangoFilterBackend]
     filterset_class = AttributeFilter
     
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             self.permission_classes = (AllowAny, )
+
+        return super(self.__class__, self).get_permissions()
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="Получить список категорий",
+        description="Возвращает список всех активных категорий товаров. "
+                   "Включает иерархическую структуру с родительскими и дочерними категориями.",
+        tags=["Категории"],
+    ),
+    retrieve=extend_schema(
+        summary="Получить категорию по ID",
+        description="Возвращает детальную информацию о конкретной категории, "
+                   "включая её иерархию и связанные товары.",
+        tags=["Категории"],
+    ),
+    create=extend_schema(
+        summary="Создать новую категорию",
+        description="Создает новую категорию товаров. Требует права администратора.",
+        tags=["Категории"],
+    ),
+    update=extend_schema(
+        summary="Обновить категорию",
+        description="Полностью обновляет информацию о категории. Требует права администратора.",
+        tags=["Категории"],
+    ),
+    partial_update=extend_schema(
+        summary="Частично обновить категорию",
+        description="Частично обновляет информацию о категории. Требует права администратора.",
+        tags=["Категории"],
+    ),
+    destroy=extend_schema(
+        summary="Удалить категорию",
+        description="Удаляет категорию товаров. Требует права администратора.",
+        tags=["Категории"],
+    ),
+)
+class CategoryViewSet(viewsets.ModelViewSet):
+    """ViewSet для работы с категориями"""
+    queryset = models.Category.objects.all()
+    serializer_class = auth_serializers.CategorySerializer
+    permission_classes = (IsAuthenticated,)
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'description']
+    filterset_class = CategoryFilter
+    ordering_fields = ['name', 'display_order', 'created_at']
+    ordering = ['display_order', 'name']
+    parser_classes = (parsers.MultiPartParser, JSONParser)
+    
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            self.permission_classes = (AllowAny,)
 
         return super(self.__class__, self).get_permissions()
 
@@ -305,7 +309,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     """ViewSet для работы с продуктами"""
     queryset = models.Product.objects.all()
     serializer_class = auth_serializers.ProductSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description']
     filterset_class = ProductFilter
@@ -357,7 +361,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     """ViewSet для работы с услугами"""
     queryset = models.Service.objects.all()
     serializer_class = auth_serializers.ServiceSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description']
     filterset_class = ServiceFilter
@@ -405,7 +409,7 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
     """ViewSet для работы со способами оплаты"""
     queryset = models.PaymentMethod.objects.all()
     serializer_class = auth_serializers.PaymentMethodSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
@@ -452,7 +456,7 @@ class DeliveryMethodViewSet(viewsets.ModelViewSet):
     """ViewSet для работы со способами доставки"""
     queryset = models.DeliveryMethod.objects.all()
     serializer_class = auth_serializers.DeliveryMethodSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
@@ -523,7 +527,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     """ViewSet для работы с заказами"""
     queryset = models.Order.objects.all()
     serializer_class = auth_serializers.OrderSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     
     def get_permissions(self):
         if self.action == "create":
@@ -648,7 +652,7 @@ class ReviewViewSet(viewsets.ModelViewSet):
     """ViewSet для работы с отзывами"""
     queryset = models.Review.objects.all()
     serializer_class = auth_serializers.ReviewSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
 
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
@@ -829,74 +833,6 @@ class CalculateDeliveryPriceView(APIView):
 
 @extend_schema_view(
     get=extend_schema(
-        summary="Получить опции фильтрации",
-        description="Возвращает все доступные опции для фильтрации товаров. "
-                   "Включает типы атрибутов (цвета, количества, типы букетов и т.д.) "
-                   "с их значениями и настройками фильтрации.",
-        tags=["Фильтры"],
-        responses={
-            200: {
-                "description": "Успешное получение опций фильтрации",
-                "content": {
-                    "application/json": {
-                        "type": "object",
-                        "additionalProperties": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string", "description": "Название типа атрибута"},
-                                "slug": {"type": "string", "description": "Уникальный идентификатор"},
-                                "filter_type": {"type": "string", "description": "Тип фильтра (checkbox, select, range и т.д.)"},
-                                "values": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "id": {"type": "string"},
-                                            "display_name": {"type": "string"},
-                                            "hex_code": {"type": "string", "description": "Цветовой код (для цветов)"},
-                                            "price_modifier": {"type": "number", "description": "Модификатор цены"}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    ),
-)
-class FilterOptionsView(APIView):
-    permission_classes = (AllowAny,)
-    
-    def get(self, request):
-        attribute_types = models.AttributeType.objects.filter(
-            is_active=True, is_filterable=True
-        ).prefetch_related('values')
-        
-        filter_options = {}
-        for attr_type in attribute_types:
-            attributes = attr_type.values.filter(is_active=True)
-            filter_options[attr_type.slug] = {
-                'name': attr_type.name,
-                'slug': attr_type.slug,
-                'filter_type': attr_type.filter_type,
-                'values': [
-                    {
-                        'id': attr.id,
-                        'display_name': attr.display_name,
-                        'hex_code': attr.hex_code,
-                        'price_modifier': float(attr.price_modifier)
-                    }
-                    for attr in attributes
-                ]
-            }
-        
-        return Response(filter_options)
-
-
-@extend_schema_view(
-    get=extend_schema(
         summary="Получить справочники",
         description="Возвращает все доступные справочники (енумы) для фронтенда. "
                    "Включает типы доставки, статусы заказов, типы фильтров атрибутов и рейтинги отзывов.",
@@ -985,7 +921,7 @@ class BannerViewSet(viewsets.ModelViewSet):
     """ViewSet для работы с баннерами"""
     queryset = models.Banner.objects.all()
     serializer_class = auth_serializers.BannerSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     parser_classes = (parsers.MultiPartParser, JSONParser)
     
     def get_permissions(self):
@@ -1032,7 +968,7 @@ class VideoViewSet(viewsets.ModelViewSet):
     """ViewSet для работы с видео"""
     queryset = models.Video.objects.all()
     serializer_class = auth_serializers.VideoSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     parser_classes = (parsers.MultiPartParser, JSONParser)
     
     def get_permissions(self):
@@ -1079,7 +1015,7 @@ class ContactViewSet(viewsets.ModelViewSet):
     """ViewSet для работы с контактами"""
     queryset = models.Contact.objects.all()
     serializer_class = auth_serializers.ContactSerializer
-    permission_classes = (IsAuthenticated, CustomDjangoModelPermission,)
+    permission_classes = (IsAuthenticated,)
     
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:

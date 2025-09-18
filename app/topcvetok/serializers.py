@@ -32,21 +32,7 @@ class CategorySerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
-class AttributeTypeSerializer(serializers.ModelSerializer):
-    values_count = serializers.SerializerMethodField()
-    
-    def get_values_count(self, obj):
-        return obj.values.filter(is_active=True).count()
-
-    class Meta:
-        model = models.AttributeType
-        fields = "__all__"
-
-
 class AttributeSerializer(serializers.ModelSerializer):
-    attribute_type_name = serializers.CharField(source='attribute_type.name', read_only=True)
-    attribute_type_slug = serializers.CharField(source='attribute_type.slug', read_only=True)
-    
     class Meta:
         model = models.Attribute
         fields = "__all__"
@@ -57,7 +43,7 @@ class ProductAttributeSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = models.ProductAttribute
-        fields = ["id", "attribute"]
+        fields = ["id", "attribute", "product"]
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -80,18 +66,19 @@ class ProductSerializer(serializers.ModelSerializer):
         """Группирует атрибуты по типам для удобства фильтрации"""
         attributes_by_type = {}
         
-        for attr in obj.product_attributes.select_related('attribute__attribute_type').all():
-            attr_type_slug = attr.attribute.attribute_type.slug
-            if attr_type_slug not in attributes_by_type:
-                attributes_by_type[attr_type_slug] = {
-                    'type_name': attr.attribute.attribute_type.name,
-                    'type_slug': attr_type_slug,
+        for attr in obj.product_attributes.select_related('attribute').all():
+            # Группируем по display_name (типу атрибута: цвет, количество, тип и т.д.)
+            attr_type_name = attr.attribute.display_name
+            if attr_type_name not in attributes_by_type:
+                attributes_by_type[attr_type_name] = {
+                    'type_name': attr_type_name,
                     'values': []
                 }
             
-            attributes_by_type[attr_type_slug]['values'].append({
+            attributes_by_type[attr_type_name]['values'].append({
                 'id': attr.attribute.id,
-                'display_name': attr.attribute.display_name,
+                'value': attr.attribute.value,
+                'slug': attr.attribute.slug,
                 'hex_code': attr.attribute.hex_code,
                 'price_modifier': float(attr.attribute.price_modifier),
             })

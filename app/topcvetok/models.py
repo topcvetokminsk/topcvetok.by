@@ -234,36 +234,12 @@ class Category(models.Model):
         unique_together = ('parent', 'slug')
 
 
-class AttributeType(models.Model):
-    """Тип атрибута (например: Цвет, Количество, Ценовой диапазон)"""
-    id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
-    name = models.CharField(max_length=100, verbose_name="Название типа атрибута")
-    slug = models.TextField(blank=True, null=True, verbose_name="URL-адрес")
-    description = models.TextField(blank=True, null=True, verbose_name="Описание")
-    is_active = models.BooleanField(default=True, verbose_name="Активен")
-    is_filterable = models.BooleanField(default=True, verbose_name="Доступен для фильтрации")
-    filter_type = models.CharField(
-        max_length=20,
-        choices=AttributeFilterType.choices,
-        default=AttributeFilterType.CHECKBOX,
-        verbose_name="Тип фильтра"
-    )
-
-
-    def __str__(self):
-        return self.name
-    
-    class Meta:
-        verbose_name = "Тип атрибута"
-        verbose_name_plural = "Типы атрибутов"
-
-
 class Attribute(models.Model):
     """Значение атрибута (например: Красный, 5 штук, 1000-2000 руб)"""
     id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
-    attribute_type = models.ForeignKey(AttributeType, on_delete=models.CASCADE, related_name='values', verbose_name="Тип атрибута")
+    display_name = models.TextField(verbose_name="Отображаемое название", default="")
+    value = models.TextField(verbose_name="Значение", default="")
     slug = models.TextField(blank=True, null=True, verbose_name="URL-адрес")
-    display_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="Отображаемое название")
     hex_code = models.CharField(max_length=7, blank=True, null=True, verbose_name="HEX код (для цветов)")
     price_modifier = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Модификатор цены", help_text="Дополнительная стоимость (положительная) или скидка (отрицательная)")
     
@@ -276,8 +252,8 @@ class Attribute(models.Model):
         return self.display_name or self.value
     
     class Meta:
-        verbose_name = "Значение атрибута"
-        verbose_name_plural = "Значения атрибутов"
+        verbose_name = "Аттрибут"
+        verbose_name_plural = "Аттрибуты"
 
 
 class ProductAttribute(models.Model):
@@ -320,7 +296,7 @@ class Product(models.Model):
 
     def get_all_attributes(self):
         """Получить все атрибуты продукта"""
-        return self.product_attributes.select_related('attribute__attribute_type').all()
+        return self.product_attributes.select_related('attribute').all()
     
     def add_attribute(self, attribute):
         """Добавить атрибут к товару"""
@@ -336,16 +312,16 @@ class Product(models.Model):
             attribute=attribute
         ).delete()
     
-    def get_attributes_by_type(self, attribute_type_slug):
-        """Получить атрибуты определенного типа"""
+    def get_attributes_by_slug(self, attribute_slug):
+        """Получить атрибуты по slug"""
         return self.product_attributes.filter(
-            attribute__attribute_type__slug=attribute_type_slug
-        ).select_related('attribute__attribute_type')
+            attribute__slug=attribute_slug
+        ).select_related('attribute')
     
-    def get_attribute_values_by_type(self, attribute_type_slug):
-        """Получить значения атрибутов определенного типа"""
+    def get_attribute_values_by_slug(self, attribute_slug):
+        """Получить значения атрибутов по slug"""
         return Attribute.objects.filter(
-            attribute_type__slug=attribute_type_slug,
+            slug=attribute_slug,
             productattribute__product=self
         ).distinct()
     
