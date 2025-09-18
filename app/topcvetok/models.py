@@ -130,7 +130,13 @@ class Video(models.Model):
         blank=True,
         null=True
     )
-    frameBackground = models.TextField(blank=True, null=True, verbose_name="Для фронта бэкграунд")
+    frameBackground = models.ImageField(
+        storage=fs,
+        upload_to="media/frame_backgrounds/",
+        blank=True,
+        null=True,
+        verbose_name="Для фронта бэкграунд"
+    )
     
     def __str__(self):
         return self.slug or f"Video {self.id}"
