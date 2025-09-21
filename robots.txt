@@ -29,8 +29,8 @@ Allow: /js/
 Allow: /fonts/
 Allow: /images/
 
-Host: https://uvi.clinic
+Host: 
 Crawl-delay: 2
 
-Sitemap: https://uvi.clinic/sitemap.xml
-Sitemap: https://uvi.clinic/sitemap-images.xml
+Sitemap: 
+Sitemap: 
