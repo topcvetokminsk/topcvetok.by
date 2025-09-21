@@ -168,6 +168,7 @@ class Category(models.Model):
     )
     slug = models.TextField(blank=True, null=True, verbose_name="Ссылка")
     keyword = models.TextField(blank=True, null=True, verbose_name="Ключевые слова")
+    text = models.TextField(blank=True, null=True, verbose_name="Дополнительный текст")
     icon = models.ImageField(
         storage=fs,
         upload_to="media/categories/icons",
