@@ -25,6 +25,8 @@ psycopg2-binary = {version = "==2.9.*", index="pypi"}
 argon2-cffi = {version = "==23.1.*", index="pypi"}
 # Other tools
 PyJWT = {version = "==2.9.*", index="pypi"}
+undetected-chromedriver = {version = "*", index="pypi"}
+async_timeout = {version = "*", index="pypi"}
 
 [dev-packages]
 # Auto-reload celery workers

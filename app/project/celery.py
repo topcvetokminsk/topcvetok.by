@@ -15,4 +15,8 @@ app.conf.beat_schedule = {
         "task": "topcvetok.tasks.clear_expired_tokens",
         "schedule": 60,
     },
+    "download-company-review": {
+        "task": "topcvetok.tasks.download_company_review",
+        "schedule": 60 * 60,
+    },
 }

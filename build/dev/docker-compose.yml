@@ -28,6 +28,8 @@ services:
       - redis
     networks:
       - default
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   celery_beat:
     build:
@@ -44,6 +46,8 @@ services:
       - redis
     networks:
       - default
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   web:
     tty: true
