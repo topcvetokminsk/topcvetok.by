@@ -1,0 +1,36 @@
+User-agent: *
+Allow: /
+Disallow: /admin*
+Disallow: /dashboard/
+Disallow: /users/
+Disallow: /search/
+Disallow: /tmp/
+Disallow: /logs/
+Disallow: /config.*
+Disallow: /wp-admin/
+Disallow: /wp-includes/
+Disallow: /ajax/
+Disallow: /private/
+Disallow: /test/
+Disallow: /cgi-bin/
+Disallow: /*?*
+Disallow: /*.pdf$
+Disallow: /*.docx$
+Disallow: /*.xlsx$
+Disallow: /404/
+Disallow: /error/
+Disallow: /backup/
+Disallow: /includes/
+Disallow: /spasibo/
+
+Allow: /uploads/
+Allow: /css/
+Allow: /js/
+Allow: /fonts/
+Allow: /images/
+
+Host: https://uvi.clinic
+Crawl-delay: 2
+
+Sitemap: https://uvi.clinic/sitemap.xml
+Sitemap: https://uvi.clinic/sitemap-images.xml
