@@ -23,6 +23,9 @@ class ProductFilter(django_filters.FilterSet):
     # Множественные фильтры по атрибутам
     attributes = django_filters.CharFilter(method='filter_by_attributes')
     
+    # Фильтр для основных товаров (без вариаций)
+    main_products_only = django_filters.BooleanFilter(method='filter_main_products_only')
+    
     class Meta:
         model = models.Product
         fields = ['name', 'categories', 'price_min', 'price_max', 'is_available', 'color', 'quantity', 'price_range', 'attributes']
@@ -221,3 +224,24 @@ class ReviewFilter(django_filters.FilterSet):
     class Meta:
         model = models.Review
         fields = ['customer_name', 'rating', 'created_at_after', 'created_at_before']
+
+
+# Добавляем метод для фильтрации основных товаров в ProductFilter
+def filter_main_products_only(self, queryset, name, value):
+    """Фильтр для показа только основных товаров (без вариаций)"""
+    if value:
+        # Исключаем товары с размерами в названии
+        size_indicators = ['40 см', '50 см', '60 см', '70 см', '80 см', '90 см', '100 см']
+        for size in size_indicators:
+            queryset = queryset.exclude(name__icontains=size)
+        
+        # Также исключаем товары, которые являются вариациями (без атрибута variation)
+        # но имеют размер в названии
+        queryset = queryset.exclude(
+            name__icontains='см',
+            product_attributes__attribute__display_name='variation'
+        ).distinct()
+    return queryset
+
+# Добавляем метод к классу ProductFilter
+ProductFilter.filter_main_products_only = filter_main_products_only
