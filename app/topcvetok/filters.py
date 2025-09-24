@@ -19,6 +19,7 @@ class ProductFilter(django_filters.FilterSet):
     color = django_filters.CharFilter(method='filter_by_color')
     quantity = django_filters.CharFilter(method='filter_by_quantity')
     price_range = django_filters.CharFilter(method='filter_by_price_range')
+    variation = django_filters.CharFilter(method='filter_by_variation')
     
     # Множественные фильтры по атрибутам
     attributes = django_filters.CharFilter(method='filter_by_attributes')
@@ -28,18 +29,18 @@ class ProductFilter(django_filters.FilterSet):
     
     class Meta:
         model = models.Product
-        fields = ['name', 'categories', 'price_min', 'price_max', 'is_available', 'color', 'quantity', 'price_range', 'attributes']
+        fields = ['name', 'categories', 'price_min', 'price_max', 'is_available', 'color', 'quantity', 'variation', 'price_range', 'attributes']
     
     def filter_by_color(self, queryset, name, value):
         """Фильтр по цвету"""
         if not value:
             return queryset
         
-        # Ищем атрибуты по display_name='цвет' и значению
+        # Совместимость: ищем как по базовому имени ("Цвет"), так и по старому формату ("Цвет: ...")
         color_values = models.Attribute.objects.filter(
-            display_name='цвет'
+            Q(display_name__iexact='цвет') | Q(display_name__istartswith='цвет:')
         ).filter(
-            Q(value__icontains=value) | Q(slug__icontains=value)
+            Q(value__icontains=value) | Q(display_name__icontains=value) | Q(slug__icontains=value)
         )
         
         if color_values.exists():
@@ -51,11 +52,11 @@ class ProductFilter(django_filters.FilterSet):
         if not value:
             return queryset
         
-        # Ищем атрибуты по display_name='количество' и значению
+        # Совместимость: ищем как по базовому имени ("Количество"), так и по старому формату ("Количество: ...")
         quantity_values = models.Attribute.objects.filter(
-            display_name='количество'
+            Q(display_name__iexact='количество') | Q(display_name__istartswith='количество:')
         ).filter(
-            Q(value__icontains=value) | Q(slug__icontains=value)
+            Q(value__icontains=value) | Q(display_name__icontains=value) | Q(slug__icontains=value)
         )
         
         if quantity_values.exists():
@@ -138,6 +139,19 @@ class ProductFilter(django_filters.FilterSet):
                 else:
                     return queryset.none()
             return queryset
+
+    def filter_by_variation(self, queryset, name, value):
+        """Фильтр по вариациям (например: длина стебля 40 см, 50 см и т.д.)"""
+        if not value:
+            return queryset
+        variation_values = models.Attribute.objects.filter(
+            Q(display_name__iexact='вариация') | Q(display_name__istartswith='вариация:')
+        ).filter(
+            Q(value__icontains=value) | Q(display_name__icontains=value) | Q(slug__icontains=value)
+        )
+        if variation_values.exists():
+            return queryset.filter(product_attributes__attribute__in=variation_values)
+        return queryset.none()
 
 
 class AttributeFilter(django_filters.FilterSet):

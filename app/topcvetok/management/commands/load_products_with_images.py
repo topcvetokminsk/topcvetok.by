@@ -1,4 +1,3 @@
-import xml.etree.ElementTree as ET
 import csv
 import os
 import requests
@@ -16,15 +15,9 @@ from topcvetok.models import (
 
 
 class Command(BaseCommand):
-    help = 'Загружает товары из XML и соотносит их с изображениями из CSV'
+    help = 'Загружает товары из CSV с изображениями, атрибутами и категориями'
 
     def add_arguments(self, parser):
-        parser.add_argument(
-            '--xml-file',
-            type=str,
-            default='topcvetok_xml.xml',
-            help='Путь к XML файлу'
-        )
         parser.add_argument(
             '--csv-file',
             type=str,
@@ -61,7 +54,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        self.xml_file = options['xml_file']
         self.csv_file = options['csv_file']
         self.max_products = options['max_products']
         self.download_images = options['download_images']
@@ -83,8 +75,11 @@ class Command(BaseCommand):
                 # 2. Загружаем данные из CSV (изображения)
                 csv_data = self.load_csv_data()
                 
-                # 3. Загружаем товары из XML и соотносим с изображениями
-                self.load_products_from_xml(csv_data)
+                # 3. Загружаем товары из CSV (основные товары)
+                self.load_products_from_csv(csv_data)
+                
+                # 4. Загружаем вариации из CSV
+                self.load_variations_from_csv(csv_data)
                 
                 self.stdout.write(
                     self.style.SUCCESS('Загрузка товаров завершена успешно!')
@@ -266,8 +261,8 @@ class Command(BaseCommand):
                     if product_type not in ['simple', 'variable', 'variation']:
                         continue
                     
-                    # Для обычных товаров требуем изображение, для вариаций - нет
-                    if product_type == 'variation' or (image_url and image_url.startswith('http') and any(ext in image_url.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp', '.gif'])):
+                    # Загружаем все товары (с изображением или без)
+                    if True:  # Загружаем все товары
                         # Извлекаем описания
                         description = row[desc_index] if desc_index and len(row) > desc_index else ''
                         
@@ -281,16 +276,33 @@ class Command(BaseCommand):
                             if parent_value and 'id:' in parent_value:
                                 parent_id = parent_value.replace('id:', '')
                         
-                            csv_data[product_id] = {
-                                'name': product_name,
-                                'type': product_type,
-                                'image_url': image_url,
-                                'price': row[price_index] if price_index and len(row) > price_index else '',
-                                'promo_price': row[promo_price_index] if promo_price_index and len(row) > promo_price_index else '',
-                                'category': row[category_index] if category_index and len(row) > category_index else '',
-                                'description': description,
-                                'parent_id': parent_id
-                            }
+                        # Извлекаем атрибуты
+                        attributes = []
+                        for i in range(1, 4):  # 3 атрибута
+                            attr_name_index = headers.index(f'Название атрибута {i}') if f'Название атрибута {i}' in headers else None
+                            attr_value_index = headers.index(f'Значения атрибутов {i}') if f'Значения атрибутов {i}' in headers else None
+                            
+                            if attr_name_index and attr_value_index and len(row) > attr_name_index and len(row) > attr_value_index:
+                                attr_name = row[attr_name_index] if row[attr_name_index] else ''
+                                attr_values = row[attr_value_index] if row[attr_value_index] else ''
+                                
+                                if attr_name and attr_values:
+                                    attributes.append({
+                                        'name': attr_name,
+                                        'values': attr_values
+                                    })
+                        
+                        csv_data[product_id] = {
+                            'name': product_name,
+                            'type': product_type,
+                            'image_url': image_url,
+                            'price': row[price_index] if price_index and len(row) > price_index else '',
+                            'promo_price': row[promo_price_index] if promo_price_index and len(row) > promo_price_index else '',
+                            'category': row[category_index] if category_index and len(row) > category_index else '',
+                            'description': description,
+                            'parent_id': parent_id,
+                            'attributes': attributes
+                        }
                             
                 except Exception as e:
                     continue
@@ -298,71 +310,29 @@ class Command(BaseCommand):
         self.stdout.write(f'Загружено {len(csv_data)} товаров с изображениями из CSV')
         return csv_data
 
-    def load_products_from_xml(self, csv_data):
-        """Загружает товары из XML и соотносит с изображениями из CSV"""
-        self.stdout.write('Загрузка товаров из XML...')
+
+    def load_products_from_csv(self, csv_data):
+        """Загружает основные товары из CSV"""
+        self.stdout.write('Загрузка основных товаров из CSV...')
         
-        # Парсим XML файл
-        xml_path = os.path.join(settings.BASE_DIR, self.xml_file)
+        products_created = 0
         
-        if not os.path.exists(xml_path):
-            raise FileNotFoundError(f'XML файл не найден: {xml_path}')
-        
-        tree = ET.parse(xml_path)
-        root = tree.getroot()
-        
-        # Создаем директорию для изображений
-        if self.download_images:
-            os.makedirs(self.images_dir, exist_ok=True)
-        
-        created_count = 0
-        matched_count = 0
-        
-        # Находим все элементы item
-        for item in root.findall('.//item'):
-            try:
-                # Проверяем, что это товар
-                post_type_elem = item.find('.//{http://wordpress.org/export/1.2/}post_type')
-                if post_type_elem is None or post_type_elem.text != 'product':
+        for product_id, csv_item in csv_data.items():
+            # Загружаем только основные товары (simple, variable, grouped, external)
+            if csv_item.get('type') not in ['variation']:
+                try:
+                    # Создаем товар
+                    product = self.create_product_from_csv(csv_item)
+                    if product:
+                        products_created += 1
+                        if products_created % 50 == 0:
+                            self.stdout.write(f'Создано {products_created} товаров...')
+                            
+                except Exception as e:
+                    self.stdout.write(f'Ошибка при создании товара {csv_item["name"]}: {e}')
                     continue
-                
-                # Извлекаем данные товара
-                product_data = self.extract_product_data(item)
-                if not product_data:
-                    continue
-                
-                # Ищем соответствующие данные в CSV
-                csv_match = self.find_csv_match(product_data, csv_data)
-                
-                if csv_match:
-                    matched_count += 1
-                    # Добавляем данные CSV к product_data
-                    product_data['csv_match'] = csv_match
-                    
-                    # Скачиваем изображение если нужно
-                    if self.download_images and csv_match['image_url']:
-                        image_path = self.download_product_image(csv_match, product_data)
-                        if image_path:
-                            product_data['image_path'] = image_path
-                
-                # Создаем товар
-                product = self.create_product(product_data)
-                if product:
-                    created_count += 1
-                    if created_count % 50 == 0:
-                        self.stdout.write(f'Создано {created_count} товаров...')
-                
-                if created_count >= self.max_products:
-                    break
-                    
-            except Exception as e:
-                self.stdout.write(f'Ошибка при обработке товара: {e}')
-                continue
         
-        self.stdout.write(f'Создано {created_count} товаров, найдено совпадений с CSV: {matched_count}')
-        
-        # Загружаем вариации из CSV
-        self.load_variations_from_csv(csv_data)
+        self.stdout.write(f'Создано {products_created} основных товаров')
 
     def load_variations_from_csv(self, csv_data):
         """Загружает вариации товаров из CSV"""
@@ -385,6 +355,68 @@ class Command(BaseCommand):
                     continue
         
         self.stdout.write(f'Создано {variations_created} вариаций товаров')
+
+    def create_product_from_csv(self, csv_item):
+        """Создает основной товар из CSV данных"""
+        try:
+            # Создаем slug для товара
+            slug = self.create_slug(csv_item['name'])
+            
+            # Получаем цену
+            price = Decimal('0.00')
+            if csv_item.get('price'):
+                try:
+                    price = Decimal(str(csv_item['price']).replace(',', '.'))
+                except (ValueError, TypeError):
+                    price = Decimal('0.00')
+            
+            # Получаем акционную цену
+            promo_price = None
+            if csv_item.get('promo_price'):
+                try:
+                    promo_price = Decimal(str(csv_item['promo_price']).replace(',', '.'))
+                except (ValueError, TypeError):
+                    promo_price = None
+            
+            # Создаем товар
+            product, created = Product.objects.get_or_create(
+                slug=slug,
+                defaults={
+                    'name': csv_item['name'],
+                    'description': csv_item.get('description', ''),
+                    'price': price,
+                    'promotional_price': promo_price,
+                    'is_available': True,
+                    'photo': '',  # Будет заполнено при скачивании изображения
+                    'meta_title': csv_item['name'],
+                    'meta_description': f'Купить {csv_item["name"]} в интернет-магазине TopCvetok'
+                }
+            )
+            
+            if created:
+                # Скачиваем изображение если есть
+                if self.download_images and csv_item.get('image_url'):
+                    image_path = self.download_product_image(csv_item, {'title': csv_item['name']})
+                    if image_path:
+                        product.photo = image_path
+                        product.save()
+                
+                # Добавляем категории если есть
+                if csv_item.get('category'):
+                    # Разбиваем категории по запятым
+                    category_list = [cat.strip() for cat in csv_item['category'].split(',')]
+                    categories = self.get_or_create_categories(category_list)
+                    product.categories.set(categories)
+                
+                # Добавляем атрибуты если есть
+                if csv_item.get('attributes'):
+                    self.add_csv_attributes_to_product(product, csv_item['attributes'])
+            
+            return product
+            
+        except Exception as e:
+            self.stdout.write(f'Ошибка при создании товара: {e}')
+            return None
 
     def create_variation_product(self, csv_item):
         """Создает товар-вариацию из CSV данных"""
@@ -426,14 +458,16 @@ class Command(BaseCommand):
             if created:
                 # Скачиваем изображение если есть
                 if self.download_images and csv_item.get('image_url'):
-                    image_path = self.download_image_from_url(csv_item['image_url'], csv_item['name'])
+                    image_path = self.download_product_image(csv_item, {'title': csv_item['name']})
                     if image_path:
                         product.photo = image_path
                         product.save()
                 
                 # Добавляем категории если есть
                 if csv_item.get('category'):
-                    categories = self.get_or_create_categories([csv_item['category']])
+                    # Разбиваем категории по запятым
+                    category_list = [cat.strip() for cat in csv_item['category'].split(',')]
+                    categories = self.get_or_create_categories(category_list)
                     product.categories.set(categories)
             
             return product
@@ -442,200 +476,7 @@ class Command(BaseCommand):
             self.stdout.write(f'Ошибка при создании товара-вариации: {e}')
             return None
 
-    def extract_product_data(self, item):
-        """Извлекает данные товара из XML элемента"""
-        try:
-            # Основные данные
-            title_elem = item.find('title')
-            title = title_elem.text if title_elem is not None else ''
-            
-            # Пропускаем товары с пустыми или проблемными названиями
-            if not title or title.strip() == '' or len(title.strip()) < 3:
-                return None
-            
-            # Пропускаем товары с "Копировать" в названии
-            if 'копировать' in title.lower():
-                return None
-            
-            link_elem = item.find('link')
-            link = link_elem.text if link_elem is not None else ''
-            
-            # Извлекаем мета-данные
-            meta_data = {}
-            for meta in item.findall('.//{http://wordpress.org/export/1.2/}postmeta'):
-                key_elem = meta.find('{http://wordpress.org/export/1.2/}meta_key')
-                value_elem = meta.find('{http://wordpress.org/export/1.2/}meta_value')
-                
-                if key_elem is not None and value_elem is not None:
-                    key = key_elem.text
-                    value = value_elem.text
-                    meta_data[key] = value
-            
-            # Извлекаем цену
-            price = self.extract_price(meta_data)
-            if not price:
-                return None
-            
-            # Извлекаем категории
-            categories = []
-            for category in item.findall('category'):
-                domain = category.get('domain', '')
-                text = category.text if category.text else ''
-                
-                if domain == 'product_cat' and text:
-                    categories.append(text)
-            
-            # Извлекаем атрибуты
-            attributes = []
-            for category in item.findall('category'):
-                domain = category.get('domain', '')
-                text = category.text if category.text else ''
-                
-                if domain.startswith('pa_') and text:
-                    attributes.append({
-                        'domain': domain,
-                        'value': text
-                    })
-            
-            return {
-                'title': title,
-                'link': link,
-                'price': price,
-                'categories': categories,
-                'attributes': attributes,
-                'meta_data': meta_data
-            }
-            
-        except Exception as e:
-            self.stdout.write(f'Ошибка при извлечении данных товара: {e}')
-            return None
 
-    def find_csv_match(self, product_data, csv_data):
-        """Ищет соответствие товара в CSV данных с улучшенным алгоритмом"""
-        product_name = product_data['title']
-        
-        # Сначала ищем точное совпадение
-        for product_id, csv_data_item in csv_data.items():
-            if csv_data_item['name'] == product_name:
-                return csv_data_item
-        
-        # Если точного совпадения нет, используем улучшенный алгоритм
-        best_match = None
-        best_score = 0
-        
-        for product_id, csv_data_item in csv_data.items():
-            similarity = self.calculate_similarity(product_data, csv_data_item)
-            
-            if similarity >= 0.7 and similarity > best_score:  # Порог схожести
-                best_match = csv_data_item
-                best_score = similarity
-        
-        return best_match
-
-    def calculate_similarity(self, xml_item, csv_item):
-        """Вычисляет схожесть между XML и CSV товарами"""
-        # Схожесть названий
-        name_sim = self.calculate_name_similarity(xml_item['title'], csv_item['name'])
-        
-        # Схожесть цен
-        price_sim = self.calculate_price_similarity(xml_item.get('price'), csv_item.get('price'))
-        
-        # Схожесть категорий
-        category_sim = self.calculate_category_similarity(
-            xml_item.get('categories', []), 
-            csv_item.get('category', '')
-        )
-        
-        # Взвешенная схожесть
-        overall_sim = (
-            name_sim * 0.6 +      # Название - основной критерий
-            price_sim * 0.25 +    # Цена - важный критерий
-            category_sim * 0.15   # Категории - дополнительный критерий
-        )
-        
-        return overall_sim
-
-    def calculate_name_similarity(self, name1, name2):
-        """Вычисляет схожесть названий (0-1)"""
-        if not name1 or not name2:
-            return 0
-        
-        # Нормализуем названия
-        norm1 = re.sub(r'[^\w\s]', '', name1.lower().strip())
-        norm2 = re.sub(r'[^\w\s]', '', name2.lower().strip())
-        
-        if norm1 == norm2:
-            return 1.0
-        
-        # Схожесть по словам
-        words1 = set(norm1.split())
-        words2 = set(norm2.split())
-        
-        if not words1 or not words2:
-            return 0
-        
-        intersection = words1.intersection(words2)
-        union = words1.union(words2)
-        
-        word_similarity = len(intersection) / len(union) if union else 0
-        
-        # Схожесть по символам
-        from difflib import SequenceMatcher
-        char_similarity = SequenceMatcher(None, norm1, norm2).ratio()
-        
-        # Комбинированная схожесть
-        combined_similarity = (word_similarity * 0.7 + char_similarity * 0.3)
-        
-        return combined_similarity
-
-    def calculate_price_similarity(self, price1, price2):
-        """Вычисляет схожесть цен (0-1)"""
-        if not price1 or not price2:
-            return 0
-        
-        try:
-            p1 = float(price1) if isinstance(price1, (int, float, Decimal)) else float(price1)
-            p2 = float(price2) if isinstance(price2, (int, float, Decimal)) else float(price2)
-            
-            if p1 == 0 and p2 == 0:
-                return 1.0
-            
-            if p1 == 0 or p2 == 0:
-                return 0
-            
-            # Относительная разница
-            diff = abs(p1 - p2) / max(p1, p2)
-            return max(0, 1 - diff)
-        except:
-            return 0
-
-    def calculate_category_similarity(self, categories1, categories2_str):
-        """Вычисляет схожесть категорий (0-1)"""
-        if not categories1 or not categories2_str:
-            return 0
-        
-        # Нормализуем категории из XML
-        norm_cats1 = set(re.sub(r'[^\w\s]', '', cat.lower().strip()) for cat in categories1)
-        
-        # Нормализуем категории из CSV
-        norm_cats2 = set()
-        for cat in categories2_str.split(','):
-            cat = cat.strip()
-            if '>' in cat:
-                # Иерархические категории
-                parts = cat.split('>')
-                for part in parts:
-                    norm_cats2.add(re.sub(r'[^\w\s]', '', part.strip().lower()))
-            else:
-                norm_cats2.add(re.sub(r'[^\w\s]', '', cat.lower()))
-        
-        if not norm_cats1 or not norm_cats2:
-            return 0
-        
-        intersection = norm_cats1.intersection(norm_cats2)
-        union = norm_cats1.union(norm_cats2)
-        
-        return len(intersection) / len(union) if union else 0
 
     def download_product_image(self, csv_match, product_data):
         """Скачивает изображение товара"""
@@ -705,6 +546,9 @@ class Command(BaseCommand):
             if len(response.content) < 1024:
                 return False
             
+            # Создаем директорию если не существует
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
             # Сохраняем файл
             with open(file_path, 'wb') as f:
                 f.write(response.content)
@@ -722,80 +566,93 @@ class Command(BaseCommand):
         except Exception:
             return False
 
-    def create_product(self, product_data):
-        """Создает товар в базе данных"""
-        try:
-            # Создаем slug из названия
-            slug = self.create_slug(product_data['title'])
-            
-            # Получаем описание из CSV если есть совпадение
-            description = ''  # По умолчанию пустое описание
-            promo_price = None  # По умолчанию нет акционной цены
-            
-            if 'csv_match' in product_data and product_data['csv_match']:
-                csv_desc = product_data['csv_match'].get('description', '')
-                csv_promo_price = product_data['csv_match'].get('promo_price', '')
-                
-                # Используем полное описание, если есть
-                if csv_desc:
-                    description = csv_desc
-                
-                # Используем акционную цену, если есть
-                if csv_promo_price and csv_promo_price.strip() and csv_promo_price != '0':
-                    try:
-                        promo_price = Decimal(str(csv_promo_price).replace(',', '.'))
-                    except (ValueError, TypeError):
-                        promo_price = None
-                
-            # Создаем товар
-            product, created = Product.objects.get_or_create(
-                slug=slug,
-                defaults={
-                    'name': product_data['title'],
-                    'description': description,
-                    'price': product_data['price'],
-                    'promotional_price': promo_price,
-                    'is_available': True,
-                    'photo': product_data.get('image_path', ''),
-                    'meta_title': product_data['title'],
-                    'meta_description': f'Купить {product_data["title"]} в интернет-магазине TopCvetok'
-                }
-            )
-            
-            if created:
-                # Добавляем категории
-                categories = self.get_or_create_categories(product_data['categories'])
-                product.categories.set(categories)
-                
-                # Добавляем атрибуты
-                self.add_attributes_to_product(product, product_data['attributes'])
-                
-                return product
-            
-        except Exception as e:
-            self.stdout.write(f'Ошибка при создании товара {product_data["title"]}: {e}')
-        
-        return None
 
     def get_or_create_categories(self, category_names):
-        """Создает или получает категории"""
+        """Создает или получает категории с поддержкой иерархии"""
         categories = []
         
         for category_name in category_names:
-            slug = self.create_slug(category_name)
-            
-            category, created = Category.objects.get_or_create(
-                slug=slug,
-                defaults={
-                    'name': category_name,
-                    'description': '',
-                    'is_active': True,
-                    'display_order': 0
-                }
-            )
-            categories.append(category)
+            # Обрабатываем иерархические категории
+            if '>' in category_name:
+                # Разбиваем по символу >
+                category_parts = [part.strip() for part in category_name.split('>')]
+                
+                # Создаем категории по уровням иерархии
+                parent_category = None
+                for i, part in enumerate(category_parts):
+                    slug = self.create_slug(part)
+                    
+                    category, created = Category.objects.get_or_create(
+                        slug=slug,
+                        defaults={
+                            'name': part,
+                            'description': '',
+                            'is_active': True,
+                            'display_order': i,
+                            'parent': parent_category
+                        }
+                    )
+                    
+                    # Если категория уже существовала, обновляем родителя
+                    if not created and category.parent != parent_category:
+                        category.parent = parent_category
+                        category.save()
+                    
+                    parent_category = category
+                    categories.append(category)
+            else:
+                # Обычная категория без иерархии
+                slug = self.create_slug(category_name)
+                
+                category, created = Category.objects.get_or_create(
+                    slug=slug,
+                    defaults={
+                        'name': category_name,
+                        'description': '',
+                        'is_active': True,
+                        'display_order': 0
+                    }
+                )
+                categories.append(category)
         
         return categories
+
+    def add_csv_attributes_to_product(self, product, attributes_data):
+        """Добавляет атрибуты к товару из CSV данных"""
+        for attr_data in attributes_data:
+            try:
+                attribute_name = attr_data['name']
+                attribute_values = attr_data['values']
+                
+                # Создаем slug для атрибута
+                slug = self.create_slug(attribute_name)
+                
+                # Разбиваем значения по запятым
+                values = [v.strip() for v in attribute_values.split(',')]
+                
+                # Создаем атрибут для каждого значения
+                for value in values:
+                    if value:
+                        # Создаем атрибут с конкретным значением
+                        value_slug = f'{slug}_{self.create_slug(value)}'
+                        attribute, created = Attribute.objects.get_or_create(
+                            slug=value_slug,
+                            defaults={
+                                'display_name': f'{attribute_name}',
+                                'value': value,
+                                'is_active': True
+                            }
+                        )
+                        
+                        # Создаем связь товар-атрибут
+                        ProductAttribute.objects.get_or_create(
+                            product=product,
+                            attribute=attribute
+                        )
+                        
+            except Exception as e:
+                self.stdout.write(f'Ошибка при добавлении атрибута {attr_data}: {e}')
+                continue
 
     def add_attributes_to_product(self, product, attributes_data):
         """Добавляет атрибуты к товару"""
