@@ -219,6 +219,12 @@ class CategoryViewSet(viewsets.ModelViewSet):
     ordering = ['display_order', 'name']
     parser_classes = (parsers.MultiPartParser, JSONParser)
     
+    def get_queryset(self):
+        """Оптимизированный queryset для категорий"""
+        return models.Category.objects.select_related('parent').prefetch_related(
+            'children', 'products'
+        ).filter(is_active=True)
+    
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             self.permission_classes = (AllowAny,)
@@ -316,6 +322,13 @@ class ProductViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name', 'price', 'created_at']
     ordering = ['name']
     parser_classes = (parsers.MultiPartParser, JSONParser)
+    
+    def get_queryset(self):
+        """Оптимизированный queryset с prefetch_related"""
+        return models.Product.objects.select_related().prefetch_related(
+            'categories',
+            'product_attributes__attribute'
+        ).filter(is_available=True)
     
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
@@ -528,6 +541,16 @@ class OrderViewSet(viewsets.ModelViewSet):
     queryset = models.Order.objects.all()
     serializer_class = auth_serializers.OrderSerializer
     permission_classes = (IsAuthenticated,)
+    
+    def get_queryset(self):
+        """Оптимизированный queryset для заказов"""
+        return models.Order.objects.select_related(
+            'delivery_method', 'payment_method', 'service'
+        ).prefetch_related(
+            'items__product',
+            'items__attributes',
+            'items__service'
+        ).order_by('-created_at')
     
     def get_permissions(self):
         if self.action == "create":

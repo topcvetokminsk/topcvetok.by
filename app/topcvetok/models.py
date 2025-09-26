@@ -7,7 +7,7 @@ from django.utils import timezone
 from topcvetok.managers import AccountManager
 from topcvetok.utils import generate_uuid, LowercaseEmailField
 from topcvetok.validators import validate_login, validate_name, validate_phone
-from topcvetok.enums import DeliveryType, AttributeFilterType, ReviewRating
+from topcvetok.enums import DeliveryType, ReviewRating
 
 from storages.backends.ftp import FTPStorage
 from django.conf import settings
@@ -233,6 +233,11 @@ class Category(models.Model):
         verbose_name = "Категория"
         verbose_name_plural = "Категории"
         unique_together = ('parent', 'slug')
+        indexes = [
+            models.Index(fields=['is_active']),
+            models.Index(fields=['display_order']),
+            models.Index(fields=['parent']),
+        ]
 
 
 class Attribute(models.Model):
@@ -368,6 +373,12 @@ class Product(models.Model):
     class Meta:
         verbose_name = "Продукт"
         verbose_name_plural = "Продукты"
+        indexes = [
+            models.Index(fields=['is_available']),
+            models.Index(fields=['price']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['name']),
+        ]
 
 
 class PaymentMethod(models.Model):

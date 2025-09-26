@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.core.cache import cache
 from topcvetok import models
 
 
@@ -167,19 +168,40 @@ class ProductSerializer(serializers.ModelSerializer):
         return attributes_by_type
     
     def get_primary_category(self, obj):
-        """Возвращает основную категорию продукта"""
-        primary = obj.get_primary_category()
-        return primary.id if primary else None
+        """Возвращает основную категорию продукта (кэшируется)"""
+        cache_key = f"product_{obj.id}_primary_category"
+        primary_category = cache.get(cache_key)
+        
+        if primary_category is None:
+            primary = obj.get_primary_category()
+            primary_category = primary.id if primary else None
+            cache.set(cache_key, primary_category, 300)  # 5 минут
+        
+        return primary_category
     
     def get_primary_category_name(self, obj):
-        """Возвращает название основной категории"""
-        primary = obj.get_primary_category()
-        return primary.name if primary else None
+        """Возвращает название основной категории (кэшируется)"""
+        cache_key = f"product_{obj.id}_primary_category_name"
+        category_name = cache.get(cache_key)
+        
+        if category_name is None:
+            primary = obj.get_primary_category()
+            category_name = primary.name if primary else None
+            cache.set(cache_key, category_name, 300)  # 5 минут
+        
+        return category_name
     
     def get_primary_category_slug(self, obj):
-        """Возвращает slug основной категории"""
-        primary = obj.get_primary_category()
-        return primary.slug if primary else None
+        """Возвращает slug основной категории (кэшируется)"""
+        cache_key = f"product_{obj.id}_primary_category_slug"
+        category_slug = cache.get(cache_key)
+        
+        if category_slug is None:
+            primary = obj.get_primary_category()
+            category_slug = primary.slug if primary else None
+            cache.set(cache_key, category_slug, 300)  # 5 минут
+        
+        return category_slug
     
     def get_categories(self, obj):
         """Возвращает все категории продукта"""

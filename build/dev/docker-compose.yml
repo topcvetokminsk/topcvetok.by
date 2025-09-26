@@ -12,12 +12,21 @@ services:
       - REDIS_REPLICATION_MODE=master
     networks:
       - default
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+          cpus: '0.25'
+        reservations:
+          memory: 100M
+          cpus: '0.1'
 
   celery:
     build:
       context: ../../
       dockerfile: build/dev/Dockerfile
-    command: watchmedo auto-restart --patterns="*.py" -R -- celery -A project worker --autoscale 10,0 --loglevel INFO -P solo
+    command: watchmedo auto-restart --patterns="*.py" -R -- celery -A project worker --concurrency=2 --loglevel INFO -P solo
     container_name: celery
     env_file:
       - .env
@@ -30,6 +39,14 @@ services:
       - default
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+          cpus: '0.5'
+        reservations:
+          memory: 100M
+          cpus: '0.25'
 
   celery_beat:
     build:
@@ -48,6 +65,14 @@ services:
       - default
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+          cpus: '0.25'
+        reservations:
+          memory: 50M
+          cpus: '0.1'
 
   web:
     tty: true
@@ -69,6 +94,14 @@ services:
     restart: on-failure
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+          cpus: '1.0'
+        reservations:
+          memory: 200M
+          cpus: '0.5'
 
 networks:
   default:

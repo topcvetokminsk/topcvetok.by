@@ -136,11 +136,17 @@ CACHES = {
         "OPTIONS": {
             "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",
             "CLIENT_CLASS": "django_redis.client.HerdClient",
-            "CONNECTION_POOL_KWARGS": {"max_connections": 100, "retry_on_timeout": True},
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 20,  # Еще меньше для 2GB RAM сервера
+                "retry_on_timeout": True,
+                "socket_keepalive": True,
+                "socket_keepalive_options": {},
+            },
             "IGNORE_EXCEPTIONS": True,
         },
         "KEY_PREFIX": "Session",
-        'MAX_ENTRIES': 10000
+        'MAX_ENTRIES': 2000,  # Еще меньше для экономии памяти
+        'TIMEOUT': 300,  # 5 минут
     }
 }
 
@@ -150,9 +156,17 @@ CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_TIMEZONE = "Europe/Minsk"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60
-CELERY_TASK_SERIALIZER = "pickle"
-CELERY_ACCEPT_CONTENT = ["json", "pickle"]
+CELERY_TASK_SERIALIZER = "json"  # Безопаснее чем pickle
+CELERY_ACCEPT_CONTENT = ["json"]  # Убрано pickle
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Оптимизации Celery для малого сервера (2GB RAM, 2 CPU)
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # Один таск на воркер
+CELERY_TASK_ACKS_LATE = True  # Подтверждение после выполнения
+CELERY_WORKER_DISABLE_RATE_LIMITS = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_CONCURRENCY = 2  # 2 воркера для 2 CPU
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 50  # Перезапуск воркеров для экономии памяти
 
 # EMAIL
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
@@ -175,6 +189,39 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = True
     #CSRF_COOKIE_SECURE = True
     SESSION_COOKIE_SECURE = True
+    
+    # Дополнительные оптимизации для продакшена
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
+    
+    # Оптимизация логирования для продакшена
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "handlers": {
+            "file": {
+                "level": "WARNING",
+                "class": "logging.FileHandler",
+                "filename": "/var/log/django/error.log",
+            },
+            "console": {
+                "level": "INFO",
+                "class": "logging.StreamHandler",
+            },
+        },
+        "root": {
+            "handlers": ["file", "console"],
+            "level": "WARNING",
+        },
+        "loggers": {
+            "django": {
+                "handlers": ["file"],
+                "level": "WARNING",
+                "propagate": False,
+            },
+        },
+    }
 
 
 ROOT_URLCONF = "project.urls"
@@ -204,14 +251,29 @@ DATABASES = {
         "PASSWORD": os.environ.get("DB_PASSWORD", "cvetok"),
         "HOST": os.environ.get("DB_HOST", "172.17.0.1"),
         "PORT": os.environ.get("DB_PORT", "5432"),
-        "OPTIONS": {"options": "-c search_path=django,public", "application_name": "topcvetok_django"},
+        "OPTIONS": {
+            "options": "-c search_path=django,public", 
+            "application_name": "topcvetok_django"
+        },
+        # Оптимизации для производительности
+        "CONN_MAX_AGE": 600,  # 10 минут
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
 PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.Argon2PasswordHasher',
 ]
+
+# Оптимизации для малого сервера
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 1000
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB - ограничение размера файлов
+DATA_UPLOAD_MAX_MEMORY_SIZE = 5242880  # 5MB - ограничение размера данных
+
+# Настройки сессий для экономии памяти
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_CACHE_ALIAS = "default"
+SESSION_COOKIE_AGE = 3600  # 1 час
 
 
 # AUTH CONFIGURATION
