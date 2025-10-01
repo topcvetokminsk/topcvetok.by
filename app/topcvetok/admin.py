@@ -32,8 +32,8 @@ class VideoAdmin(admin.ModelAdmin):
 class CategoryAdmin(admin.ModelAdmin):
     list_display = [field.name for field in models.Category._meta.fields]
     search_fields = [field.name for field in models.Category._meta.fields]
-    list_filter = ['is_active', 'parent']
-    readonly_fields = ['id', 'level_display']
+    list_filter = ['is_active']
+    readonly_fields = ['id']
 
     def level_display(self, obj):
         return obj.level
@@ -82,7 +82,7 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = [field.name for field in models.Order._meta.fields]
     search_fields = [field.name for field in models.Order._meta.fields]
     list_filter = ['payment_method', 'delivery_method', 'created_at']
-    readonly_fields = ['id', 'created_at', 'updated_at', 'consent_date']
+    readonly_fields = ['id', 'created_at', 'updated_at']
 
 
 @admin.register(models.Review)

@@ -16,6 +16,15 @@ from topcvetok.filters import ProductFilter, AttributeFilter, ServiceFilter, Cat
 from topcvetok.enums import DeliveryType, AttributeFilterType, ReviewRating
 
 
+class PublicActionPermissionsMixin:
+    """Mixin to allow anonymous access for selected actions to DRY permission logic."""
+    anonymous_actions = {"list", "retrieve"}
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in getattr(self, "anonymous_actions", set()):
+            return [AllowAny()]
+        return [permission() for permission in self.permission_classes]
+
 @extend_schema_view(
     post=extend_schema(
         summary="Войти в систему",
@@ -158,7 +167,7 @@ class Logout(APIView):
         tags=["Атрибуты"],
     ),
 )
-class AttributeViewSet(viewsets.ModelViewSet):
+class AttributeViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с атрибутами"""
     queryset = models.Attribute.objects.all()
     serializer_class = auth_serializers.AttributeSerializer
@@ -166,11 +175,7 @@ class AttributeViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = AttributeFilter
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny, )
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -207,7 +212,7 @@ class AttributeViewSet(viewsets.ModelViewSet):
         tags=["Категории"],
     ),
 )
-class CategoryViewSet(viewsets.ModelViewSet):
+class CategoryViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с категориями"""
     queryset = models.Category.objects.all()
     serializer_class = auth_serializers.CategorySerializer
@@ -215,21 +220,15 @@ class CategoryViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description']
     filterset_class = CategoryFilter
-    ordering_fields = ['name', 'display_order', 'created_at']
+    ordering_fields = ['name', 'display_order']
     ordering = ['display_order', 'name']
     parser_classes = (parsers.MultiPartParser, JSONParser)
     
     def get_queryset(self):
         """Оптимизированный queryset для категорий"""
-        return models.Category.objects.select_related('parent').prefetch_related(
-            'children', 'products'
-        ).filter(is_active=True)
+        return models.Category.objects.prefetch_related('products').filter(is_active=True)
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny,)
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -265,17 +264,13 @@ class CategoryViewSet(viewsets.ModelViewSet):
         tags=["Продукты"],
     ),
 )
-class ProductAttributeViewSet(viewsets.ModelViewSet):
+class ProductAttributeViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с атрибутами продуктов"""
     queryset = models.ProductAttribute.objects.all()
     serializer_class = auth_serializers.ProductAttributeSerializer
     permission_classes = (IsAuthenticated,)
 
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny, )
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -311,7 +306,7 @@ class ProductAttributeViewSet(viewsets.ModelViewSet):
         tags=["Товары"],
     ),
 )
-class ProductViewSet(viewsets.ModelViewSet):
+class ProductViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с продуктами"""
     queryset = models.Product.objects.all()
     serializer_class = auth_serializers.ProductSerializer
@@ -330,11 +325,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             'product_attributes__attribute'
         ).filter(is_available=True)
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny, )
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -370,7 +361,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         tags=["Услуги"],
     ),
 )
-class ServiceViewSet(viewsets.ModelViewSet):
+class ServiceViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с услугами"""
     queryset = models.Service.objects.all()
     serializer_class = auth_serializers.ServiceSerializer
@@ -379,11 +370,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'description']
     filterset_class = ServiceFilter
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny, )
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -418,17 +405,13 @@ class ServiceViewSet(viewsets.ModelViewSet):
         tags=["Оплата"],
     ),
 )
-class PaymentMethodViewSet(viewsets.ModelViewSet):
+class PaymentMethodViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы со способами оплаты"""
     queryset = models.PaymentMethod.objects.all()
     serializer_class = auth_serializers.PaymentMethodSerializer
     permission_classes = (IsAuthenticated,)
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny, )
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -465,17 +448,13 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
         tags=["Доставка"],
     ),
 )
-class DeliveryMethodViewSet(viewsets.ModelViewSet):
+class DeliveryMethodViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы со способами доставки"""
     queryset = models.DeliveryMethod.objects.all()
     serializer_class = auth_serializers.DeliveryMethodSerializer
     permission_classes = (IsAuthenticated,)
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny, )
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -552,11 +531,11 @@ class OrderViewSet(viewsets.ModelViewSet):
             'items__service'
         ).order_by('-created_at')
     
+    # Allow anonymous create only; other actions require auth
     def get_permissions(self):
-        if self.action == "create":
-            self.permission_classes = (AllowAny, )
-
-        return super(self.__class__, self).get_permissions()
+        if getattr(self, "action", None) == "create":
+            return [AllowAny()]
+        return [permission() for permission in self.permission_classes]
     
     def get_serializer_class(self):
         """Возвращает правильный сериализатор в зависимости от действия"""
@@ -671,17 +650,13 @@ class OrderViewSet(viewsets.ModelViewSet):
         tags=["Отзывы"],
     ),
 )
-class ReviewViewSet(viewsets.ModelViewSet):
+class ReviewViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с отзывами"""
     queryset = models.Review.objects.all()
     serializer_class = auth_serializers.ReviewSerializer
     permission_classes = (IsAuthenticated,)
 
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny,)
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 
@@ -755,17 +730,15 @@ class CalculatePriceView(APIView):
         # Рассчитываем цену
         if attributes:
             final_price = product.get_price_with_attributes(attributes)
-            modifiers = [float(attr.price_modifier) for attr in attributes]
         else:
             final_price = product.price
-            modifiers = []
         
         return Response({
             'product_id': product.id,
             'base_price': float(product.price),
             'final_price': float(final_price),
-            'modifiers': modifiers,
-            'total_modifier': sum(modifiers)
+            'modifiers': [],
+            'total_modifier': 0
         })
 
 
@@ -854,59 +827,7 @@ class CalculateDeliveryPriceView(APIView):
         })
 
 
-@extend_schema_view(
-    get=extend_schema(
-        summary="Получить справочники",
-        description="Возвращает все доступные справочники (енумы) для фронтенда. "
-                   "Включает типы доставки, статусы заказов, типы фильтров атрибутов и рейтинги отзывов.",
-        tags=["Справочники"],
-        responses={
-            200: {
-                "description": "Успешное получение справочников",
-                "content": {
-                    "application/json": {
-                        "type": "object",
-                        "properties": {
-                            "delivery_types": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "value": {"type": "string", "description": "Значение енума"},
-                                        "label": {"type": "string", "description": "Отображаемое название"}
-                                    }
-                                },
-                                "description": "Типы доставки (Минск, Беларусь, самовывоз)"
-                            },
-                            "attribute_filter_types": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "value": {"type": "string"},
-                                        "label": {"type": "string"}
-                                    }
-                                },
-                                "description": "Типы фильтров атрибутов (checkbox, select, range и т.д.)"
-                            },
-                            "review_ratings": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "value": {"type": "integer"},
-                                        "label": {"type": "string"}
-                                    }
-                                },
-                                "description": "Рейтинги отзывов (1-5 звезд)"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    ),
-)
+ 
 @extend_schema_view(
     list=extend_schema(
         summary="Получить список баннеров",
@@ -940,18 +861,14 @@ class CalculateDeliveryPriceView(APIView):
         tags=["Контент"],
     ),
 )
-class BannerViewSet(viewsets.ModelViewSet):
+class BannerViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с баннерами"""
     queryset = models.Banner.objects.all()
     serializer_class = auth_serializers.BannerSerializer
     permission_classes = (IsAuthenticated,)
     parser_classes = (parsers.MultiPartParser, JSONParser)
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny,)
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -987,18 +904,14 @@ class BannerViewSet(viewsets.ModelViewSet):
         tags=["Контент"],
     ),
 )
-class VideoViewSet(viewsets.ModelViewSet):
+class VideoViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с видео"""
     queryset = models.Video.objects.all()
     serializer_class = auth_serializers.VideoSerializer
     permission_classes = (IsAuthenticated,)
     parser_classes = (parsers.MultiPartParser, JSONParser)
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny,)
-
-        return super(self.__class__, self).get_permissions()
+    # permissions handled by mixin
 
 
 @extend_schema_view(
@@ -1034,17 +947,14 @@ class VideoViewSet(viewsets.ModelViewSet):
         tags=["Контакты"],
     ),
 )
-class ContactViewSet(viewsets.ModelViewSet):
+class ContactViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     """ViewSet для работы с контактами"""
     queryset = models.Contact.objects.all()
     serializer_class = auth_serializers.ContactSerializer
     permission_classes = (IsAuthenticated,)
     
-    def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
-            self.permission_classes = (AllowAny,)
+    # permissions handled by mixin
 
-        return super(self.__class__, self).get_permissions()
 
 
 @extend_schema_view(

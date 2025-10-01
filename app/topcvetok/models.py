@@ -157,105 +157,31 @@ class Category(models.Model):
     )
     name = models.TextField(verbose_name="Название")
     description = models.TextField(blank=True, null=True, verbose_name="Описание")
-    parent = models.ForeignKey(
-        'self',
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name='children',
-        verbose_name="Родительская категория",
-        help_text="Выберите родительскую категорию для создания подкатегории"
-    )
     slug = models.TextField(blank=True, null=True, verbose_name="Ссылка")
-    keyword = models.TextField(blank=True, null=True, verbose_name="Ключевые слова")
-    text = models.TextField(blank=True, null=True, verbose_name="Дополнительный текст")
-    icon = models.ImageField(
-        storage=fs,
-        upload_to="media/categories/icons",
-        help_text="Иконка",
-        verbose_name="Иконка",
-        blank=True,
-        null=True
-    )
     is_active = models.BooleanField(default=True, verbose_name="Активна")
     display_order = models.PositiveIntegerField(default=0, verbose_name="Порядок отображения")
 
-    @property
-    def is_root(self):
-        """Проверяет, является ли категория корневой (без родителя)"""
-        return self.parent is None
-
-    @property
-    def level(self):
-        """Возвращает уровень вложенности категории"""
-        level = 0
-        parent = self.parent
-        while parent:
-            level += 1
-            parent = parent.parent
-        return level
-
-    def get_ancestors(self):
-        """Возвращает всех предков категории"""
-        ancestors = []
-        parent = self.parent
-        while parent:
-            ancestors.append(parent)
-            parent = parent.parent
-        return ancestors
-
-    def get_descendants(self):
-        """Возвращает всех потомков категории"""
-        descendants = []
-        for child in self.children.all():
-            descendants.append(child)
-            descendants.extend(child.get_descendants())
-        return descendants
-
-    def get_full_path(self):
-        """Возвращает полный путь к категории (например: "Цветы > Розы > Красные розы")"""
-        path = [self.name]
-        for ancestor in reversed(self.get_ancestors()):
-            path.insert(0, ancestor.name)
-        return " > ".join(path)
-
-    def get_full_slug(self):
-        """Возвращает полный slug категории (например: "cveti/rozi/krasnye-rozi")"""
-        slugs = [self.slug]
-        for ancestor in reversed(self.get_ancestors()):
-            slugs.insert(0, ancestor.slug)
-        return "/".join(slugs)
-    
     def __str__(self):
         return self.name
     
     class Meta:
         verbose_name = "Категория"
         verbose_name_plural = "Категории"
-        unique_together = ('parent', 'slug')
         indexes = [
             models.Index(fields=['is_active']),
             models.Index(fields=['display_order']),
-            models.Index(fields=['parent']),
         ]
 
 
 class Attribute(models.Model):
     """Значение атрибута (например: Красный, 5 штук, 1000-2000 руб)"""
     id = models.CharField(default=generate_uuid, primary_key=True, editable=False, max_length=40)
-    display_name = models.TextField(verbose_name="Отображаемое название", default="")
+    name = models.TextField(verbose_name="Отображаемое название", default="")
     value = models.TextField(verbose_name="Значение", default="")
-    slug = models.TextField(blank=True, null=True, verbose_name="URL-адрес")
-    hex_code = models.CharField(max_length=7, blank=True, null=True, verbose_name="HEX код (для цветов)")
-    price_modifier = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name="Модификатор цены", help_text="Дополнительная стоимость (положительная) или скидка (отрицательная)")
-    
     is_active = models.BooleanField(default=True, verbose_name="Активно")
     
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
     def __str__(self):
-        return self.display_name or self.value
+        return self.name or self.value
     
     class Meta:
         verbose_name = "Аттрибут"
@@ -290,8 +216,8 @@ class Product(models.Model):
         blank=True,
         null=True
     )
+    is_popular = models.BooleanField(default=False, verbose_name="Популярный")
     is_available = models.BooleanField(default=True, verbose_name="Доступен")
-
     
     # SEO поля
     meta_title = models.CharField(max_length=255, blank=True, null=True, verbose_name="Meta Title")
@@ -318,18 +244,6 @@ class Product(models.Model):
             attribute=attribute
         ).delete()
     
-    def get_attributes_by_slug(self, attribute_slug):
-        """Получить атрибуты по slug"""
-        return self.product_attributes.filter(
-            attribute__slug=attribute_slug
-        ).select_related('attribute')
-    
-    def get_attribute_values_by_slug(self, attribute_slug):
-        """Получить значения атрибутов по slug"""
-        return Attribute.objects.filter(
-            slug=attribute_slug,
-            productattribute__product=self
-        ).distinct()
     
     def has_attribute_value(self, attribute):
         """Проверить, есть ли у продукта определенное значение атрибута"""
@@ -342,30 +256,6 @@ class Product(models.Model):
     def get_all_categories(self):
         """Получить все категории продукта"""
         return self.categories.all()
-    
-    def get_categories_hierarchy(self):
-        """Получить иерархию всех категорий продукта"""
-        all_categories = []
-        for category in self.categories.all():
-            # Добавляем саму категорию и всех её предков
-            all_categories.extend(category.get_ancestors())
-            all_categories.append(category)
-        return list(set(all_categories))  # Убираем дубликаты
-    
-    def get_price_with_attributes(self, selected_attributes):
-        """Рассчитать цену продукта с учетом выбранных атрибутов"""
-        base_price = self.price
-        
-        # Если есть акционная цена, используем её как базовую
-        if self.promotional_price is not None:
-            base_price = self.promotional_price
-        
-        # Добавляем модификаторы от выбранных атрибутов
-        total_modifier = 0
-        for attribute in selected_attributes:
-            total_modifier += attribute.price_modifier
-        
-        return base_price + total_modifier
     
     def __str__(self):
         return self.name
@@ -515,22 +405,14 @@ class DeliveryMethod(models.Model):
             
             # Ранняя доставка (до рабочего времени)
             if delivery_hour < self.working_hours_start.hour:
-                if order_amount >= (self.free_delivery_min_amount or 0):
-                    return self.early_delivery_price
-                else:
-                    return self.low_amount_early_price
+                return self.low_amount_early_price
             
             # Поздняя доставка (после рабочего времени)
             elif delivery_hour >= self.working_hours_end.hour:
-                if order_amount >= (self.free_delivery_min_amount or 0):
-                    return self.late_delivery_price
-                else:
-                    # Проверяем минимальную сумму для поздней доставки
-                    if (self.late_delivery_min_amount and 
-                        order_amount >= self.late_delivery_min_amount):
-                        return self.low_amount_late_price
-                    else:
-                        return self.low_amount_late_price
+                # Проверяем минимальную сумму для поздней доставки
+                if (self.late_delivery_min_amount and order_amount >= self.late_delivery_min_amount):
+                    return self.low_amount_late_price
+                return self.low_amount_late_price
             
             # Рабочее время
             else:
@@ -674,14 +556,14 @@ class Order(models.Model):
     def calculate_total(self):
         """Рассчитать общую сумму заказа"""
         total = sum(item.price * item.quantity for item in self.items.all())
-        self.total_amount = total - self.discount_amount
-        self.save()
+        self.total_amount = total
+        self.save(update_fields=["total_amount"])
         return total
 
     @property
     def final_amount(self):
         """Итоговая сумма с учетом скидок"""
-        return self.total_amount - self.discount_amount
+        return self.total_amount
     
     @property
     def has_valid_consent(self):
@@ -707,7 +589,7 @@ class Order(models.Model):
         }
     
     def __str__(self):
-        return f"Заказ #{self.order_number} - {self.customer_name}"
+        return f"Заказ {self.id} - {self.customer_name}"
     
     class Meta:
         verbose_name = "Заказ"

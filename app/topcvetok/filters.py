@@ -1,6 +1,7 @@
 import django_filters
 from django.db.models import Q
 from . import models
+from .constants import SIZE_INDICATORS
 
 
 class ProductFilter(django_filters.FilterSet):
@@ -9,11 +10,11 @@ class ProductFilter(django_filters.FilterSet):
     # Базовые фильтры
     name = django_filters.CharFilter(field_name='name', lookup_expr='icontains')
     category = django_filters.CharFilter(method='filter_by_category')
-    category_parent = django_filters.CharFilter(method='filter_by_category_parent')
     categories = django_filters.CharFilter(method='filter_by_categories')
     price_min = django_filters.NumberFilter(field_name='price', lookup_expr='gte')
     price_max = django_filters.NumberFilter(field_name='price', lookup_expr='lte')
     is_available = django_filters.BooleanFilter(field_name='is_available')
+    is_popular = django_filters.BooleanFilter(field_name='is_popular')
     
     # Фильтры по атрибутам
     color = django_filters.CharFilter(method='filter_by_color')
@@ -29,18 +30,17 @@ class ProductFilter(django_filters.FilterSet):
     
     class Meta:
         model = models.Product
-        fields = ['name', 'categories', 'price_min', 'price_max', 'is_available', 'color', 'quantity', 'variation', 'price_range', 'attributes']
+        fields = ['name', 'categories', 'price_min', 'price_max', 'is_available', 'is_popular', 'color', 'quantity', 'variation', 'price_range', 'attributes']
     
     def filter_by_color(self, queryset, name, value):
         """Фильтр по цвету"""
         if not value:
             return queryset
         
-        # Совместимость: ищем как по базовому имени ("Цвет"), так и по старому формату ("Цвет: ...")
         color_values = models.Attribute.objects.filter(
-            Q(display_name__iexact='цвет') | Q(display_name__istartswith='цвет:')
+            Q(name__iexact='цвет') | Q(name__iexact='color')
         ).filter(
-            Q(value__icontains=value) | Q(display_name__icontains=value) | Q(slug__icontains=value)
+            Q(value__icontains=value)
         )
         
         if color_values.exists():
@@ -52,11 +52,10 @@ class ProductFilter(django_filters.FilterSet):
         if not value:
             return queryset
         
-        # Совместимость: ищем как по базовому имени ("Количество"), так и по старому формату ("Количество: ...")
         quantity_values = models.Attribute.objects.filter(
-            Q(display_name__iexact='количество') | Q(display_name__istartswith='количество:')
+            Q(name__iexact='количество') | Q(name__iexact='quantity')
         ).filter(
-            Q(value__icontains=value) | Q(display_name__icontains=value) | Q(slug__icontains=value)
+            Q(value__icontains=value)
         )
         
         if quantity_values.exists():
@@ -92,12 +91,7 @@ class ProductFilter(django_filters.FilterSet):
         
         return queryset.filter(categories__slug=value).distinct()
     
-    def filter_by_category_parent(self, queryset, name, value):
-        """Фильтр по родительской категории"""
-        if not value:
-            return queryset
-        
-        return queryset.filter(categories__parent__slug=value).distinct()
+    # Удалено: иерархии категорий больше нет
     
     def filter_by_categories(self, queryset, name, value):
         """Фильтр по нескольким категориям (через запятую)"""
@@ -123,7 +117,7 @@ class ProductFilter(django_filters.FilterSet):
             conditions = Q()
             for attr_value in value.split('|'):
                 attr_values = models.Attribute.objects.filter(
-                    Q(value__icontains=attr_value.strip()) | Q(slug__icontains=attr_value.strip())
+                    Q(value__icontains=attr_value.strip())
                 )
                 if attr_values.exists():
                     conditions |= Q(product_attributes__attribute__in=attr_values)
@@ -132,7 +126,7 @@ class ProductFilter(django_filters.FilterSet):
             # И - все атрибуты должны совпадать
             for attr_value in value.split(','):
                 attr_values = models.Attribute.objects.filter(
-                    Q(value__icontains=attr_value.strip()) | Q(slug__icontains=attr_value.strip())
+                    Q(value__icontains=attr_value.strip())
                 )
                 if attr_values.exists():
                     queryset = queryset.filter(product_attributes__attribute__in=attr_values)
@@ -145,25 +139,39 @@ class ProductFilter(django_filters.FilterSet):
         if not value:
             return queryset
         variation_values = models.Attribute.objects.filter(
-            Q(display_name__iexact='вариация') | Q(display_name__istartswith='вариация:')
+            Q(name__iexact='вариация') | Q(name__iexact='variation')
         ).filter(
-            Q(value__icontains=value) | Q(display_name__icontains=value) | Q(slug__icontains=value)
+            Q(value__icontains=value)
         )
         if variation_values.exists():
             return queryset.filter(product_attributes__attribute__in=variation_values)
         return queryset.none()
 
+    def filter_main_products_only(self, queryset, name, value):
+        """Фильтр для показа только основных товаров (без вариаций)"""
+        if value:
+            # Исключаем товары с размерами в названии
+            for size in SIZE_INDICATORS:
+                queryset = queryset.exclude(name__icontains=size)
+            
+            # Также исключаем товары, которые являются вариациями и имеют размер в названии
+            queryset = queryset.exclude(
+                name__icontains='см',
+                product_attributes__attribute__name__in=['variation', 'вариация']
+            ).distinct()
+        return queryset
+
 
 class AttributeFilter(django_filters.FilterSet):
     """Фильтр для атрибутов"""
     
-    slug = django_filters.CharFilter(field_name='slug')
-    display_name = django_filters.CharFilter(field_name='display_name', lookup_expr='icontains')
+    name = django_filters.CharFilter(field_name='name', lookup_expr='icontains')
+    value = django_filters.CharFilter(field_name='value', lookup_expr='icontains')
     is_active = django_filters.BooleanFilter(field_name='is_active')
     
     class Meta:
         model = models.Attribute
-        fields = ['slug', 'display_name', 'is_active']
+        fields = ['name', 'value', 'is_active']
 
 
 class ServiceFilter(django_filters.FilterSet):
@@ -200,62 +208,16 @@ class CategoryFilter(django_filters.FilterSet):
     """Фильтр для категорий"""
     
     name = django_filters.CharFilter(field_name='name', lookup_expr='icontains')
-    parent = django_filters.CharFilter(field_name='parent__slug')
     is_active = django_filters.BooleanFilter(field_name='is_active')
     
     class Meta:
         model = models.Category
-        fields = ['name', 'parent', 'is_active']
+        fields = ['name', 'is_active']
 
 
-class OrderFilter(django_filters.FilterSet):
-    """Фильтр для заказов"""
-    
-    order_number = django_filters.CharFilter(field_name='order_number', lookup_expr='icontains')
-    customer_name = django_filters.CharFilter(field_name='customer_name', lookup_expr='icontains')
-    customer_phone = django_filters.CharFilter(field_name='customer_phone', lookup_expr='icontains')
-    delivery_address = django_filters.CharFilter(field_name='delivery_address', lookup_expr='icontains')
-    payment_method = django_filters.CharFilter(field_name='payment_method__id')
-    delivery_method = django_filters.CharFilter(field_name='delivery_method__id')
-    service = django_filters.CharFilter(field_name='service__id')
-    created_at_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
-    created_at_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
-    
-    class Meta:
-        model = models.Order
-        fields = ['order_number', 'customer_name', 'customer_phone', 'delivery_address', 
-                 'payment_method', 'delivery_method', 'service', 'created_at_after', 'created_at_before']
-
-
-class ReviewFilter(django_filters.FilterSet):
-    """Фильтр для отзывов"""
-    
-    customer_name = django_filters.CharFilter(field_name='customer_name', lookup_expr='icontains')
-    rating = django_filters.NumberFilter(field_name='rating')
-    created_at_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
-    created_at_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
-    
-    class Meta:
-        model = models.Review
-        fields = ['customer_name', 'rating', 'created_at_after', 'created_at_before']
-
-
-# Добавляем метод для фильтрации основных товаров в ProductFilter
-def filter_main_products_only(self, queryset, name, value):
-    """Фильтр для показа только основных товаров (без вариаций)"""
-    if value:
-        # Исключаем товары с размерами в названии
-        size_indicators = ['40 см', '50 см', '60 см', '70 см', '80 см', '90 см', '100 см']
-        for size in size_indicators:
-            queryset = queryset.exclude(name__icontains=size)
-        
-        # Также исключаем товары, которые являются вариациями (без атрибута variation)
-        # но имеют размер в названии
-        queryset = queryset.exclude(
-            name__icontains='см',
-            product_attributes__attribute__display_name='variation'
-        ).distinct()
-    return queryset
-
-# Добавляем метод к классу ProductFilter
-ProductFilter.filter_main_products_only = filter_main_products_only
+"""
+Примечание: ранее присутствовали фильтры для заказов и отзывов, но они не
+используются во вьюхах и ссылались на поля, отсутствующие в моделях. Чтобы
+избежать ошибок, они удалены. При необходимости добавим согласованные
+реализации.
+"""

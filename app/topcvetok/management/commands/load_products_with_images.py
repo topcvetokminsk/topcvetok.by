@@ -27,7 +27,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--max-products',
             type=int,
-            default=100,
+            default=1000,
             help='Максимальное количество товаров для загрузки'
         )
         parser.add_argument(
@@ -387,6 +387,7 @@ class Command(BaseCommand):
                     'price': price,
                     'promotional_price': promo_price,
                     'is_available': True,
+                    'is_popular': False,
                     'photo': '',  # Будет заполнено при скачивании изображения
                     'meta_title': csv_item['name'],
                     'meta_description': f'Купить {csv_item["name"]} в интернет-магазине TopCvetok'
@@ -449,6 +450,7 @@ class Command(BaseCommand):
                     'price': price,
                     'promotional_price': promo_price,
                     'is_available': True,
+                    'is_popular': False,
                     'photo': '',  # У вариаций обычно нет отдельного изображения
                     'meta_title': csv_item['name'],
                     'meta_description': f'Купить {csv_item["name"]} в интернет-магазине TopCvetok'
@@ -568,52 +570,36 @@ class Command(BaseCommand):
 
 
     def get_or_create_categories(self, category_names):
-        """Создает или получает категории с поддержкой иерархии"""
+        """Создает или получает одноуровневые категории (игнорирует иерархию)"""
         categories = []
         
         for category_name in category_names:
-            # Обрабатываем иерархические категории
-            if '>' in category_name:
-                # Разбиваем по символу >
-                category_parts = [part.strip() for part in category_name.split('>')]
-                
-                # Создаем категории по уровням иерархии
-                parent_category = None
-                for i, part in enumerate(category_parts):
-                    slug = self.create_slug(part)
-                    
-                    category, created = Category.objects.get_or_create(
-                        slug=slug,
-                        defaults={
-                            'name': part,
-                            'description': '',
-                            'is_active': True,
-                            'display_order': i,
-                            'parent': parent_category
-                        }
-                    )
-                    
-                    # Если категория уже существовала, обновляем родителя
-                    if not created and category.parent != parent_category:
-                        category.parent = parent_category
-                        category.save()
-                    
-                    parent_category = category
-                    categories.append(category)
+            # Нормализуем разделители и HTML-сущности, убираем иерархию
+            raw = (category_name or '').strip()
+            # Декодируем HTML-стрелку и унифицируем варианты стрелок
+            raw = raw.replace('&gt;', '>').replace('→', '>').replace('›', '>').replace('»', '>')
+            # Приводим все варианты разделителей к '>'
+            raw = raw.replace('->', '>')
+            # Берем только последнюю часть после '>' (если иерархия присутствует)
+            if '>' in raw:
+                parts = [p.strip() for p in raw.split('>') if p and p.strip()]
+                flat_name = parts[-1] if parts else raw.strip()
             else:
-                # Обычная категория без иерархии
-                slug = self.create_slug(category_name)
-                
-                category, created = Category.objects.get_or_create(
-                    slug=slug,
-                    defaults={
-                        'name': category_name,
-                        'description': '',
-                        'is_active': True,
-                        'display_order': 0
-                    }
-                )
-                categories.append(category)
+                flat_name = raw
+            
+            # Создаем slug из плоского названия
+            slug = self.create_slug(flat_name)
+            
+            category, created = Category.objects.get_or_create(
+                slug=slug,
+                defaults={
+                    'name': flat_name,
+                    'description': '',
+                    'is_active': True,
+                    'display_order': 0
+                }
+            )
+            categories.append(category)
         
         return categories
 
@@ -624,22 +610,16 @@ class Command(BaseCommand):
                 attribute_name = attr_data['name']
                 attribute_values = attr_data['values']
                 
-                # Создаем slug для атрибута
-                slug = self.create_slug(attribute_name)
-                
                 # Разбиваем значения по запятым
                 values = [v.strip() for v in attribute_values.split(',')]
                 
                 # Создаем атрибут для каждого значения
                 for value in values:
                     if value:
-                        # Создаем атрибут с конкретным значением
-                        value_slug = f'{slug}_{self.create_slug(value)}'
                         attribute, created = Attribute.objects.get_or_create(
-                            slug=value_slug,
+                            name=attribute_name,
+                            value=value,
                             defaults={
-                                'display_name': f'{attribute_name}',
-                                'value': value,
                                 'is_active': True
                             }
                         )
@@ -660,28 +640,11 @@ class Command(BaseCommand):
             try:
                 attribute_type = attr_data['domain'].replace('pa_', '')
                 value = attr_data['value']
-                slug = self.create_slug(value)
-                
-                # Определяем модификатор цены для размеров
-                price_modifier = 0
-                if 'variation' in attr_data['domain'] and 'см' in value:
-                    size_match = re.search(r'(\d+)', value)
-                    if size_match:
-                        size = int(size_match.group(1))
-                        price_modifier = max(0, (size - 40) * 0.5)
-                
-                # Определяем HEX код для цветов
-                hex_code = None
-                if 'color' in attr_data['domain']:
-                    hex_code = self.get_color_hex(value)
                 
                 attribute, created = Attribute.objects.get_or_create(
-                    slug=slug,
+                    name=attribute_type,
+                    value=value,
                     defaults={
-                        'display_name': attribute_type,
-                        'value': value,
-                        'hex_code': hex_code,
-                        'price_modifier': price_modifier,
                         'is_active': True
                     }
                 )
