@@ -57,7 +57,7 @@ class ProductSerializer(serializers.ModelSerializer):
     attributes = ProductAttributeSerializer(source='product_attributes', many=True, read_only=True)
     
     # Группированные атрибуты для удобства фронтенда
-    attributes_by_type = serializers.SerializerMethodField()
+    #attributes_by_type = serializers.SerializerMethodField()
     
     # Поля для определения типа товара
     is_main_product = serializers.SerializerMethodField()
@@ -137,6 +137,15 @@ class ProductSerializer(serializers.ModelSerializer):
 #                        break
         
 #        return sorted(list(set(sizes)))
+
+    def get_base_name(self, obj):
+        """Возвращает базовое название товара без размера"""
+        name = obj.name
+        # Убираем размеры из названия
+        size_indicators = ['40 см', '50 см', '60 см', '70 см', '80 см', '90 см', '100 см']
+        for size in size_indicators:
+            name = name.replace(f' - {size}', '').replace(f' {size}', '')
+        return name.strip()
     
     def get_attributes_by_type(self, obj):
         """Группирует атрибуты по типам для удобства фильтрации"""
@@ -173,12 +182,11 @@ class ProductSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Product
         fields = [
-            'id', 'name', 'description', 'slug', 'categories', 'primary_category', 
-            'primary_category_name', 'primary_category_slug', 'price', 'promotional_price',
-            'display_price', 'has_promotional_price', 'photo', 'is_available', 'is_popular',
+            'id', 'name', 'description', 'slug', 'categories', 'price', 'promotional_price',
+            'photo', 'is_available', 'is_popular',
             'meta_title', 'meta_description', 'created_at', 'updated_at', 
-            'attributes', 'attributes_by_type', 'is_main_product', 'base_name', 
-            'variations', 'available_sizes'
+            'attributes', 'is_main_product',
+            'variations'
         ]
 
 

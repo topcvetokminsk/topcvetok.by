@@ -249,10 +249,6 @@ class Product(models.Model):
         """Проверить, есть ли у продукта определенное значение атрибута"""
         return self.product_attributes.filter(attribute=attribute).exists()
     
-    def get_primary_category(self):
-        """Получить основную категорию (первую в списке)"""
-        return self.categories.first()
-    
     def get_all_categories(self):
         """Получить все категории продукта"""
         return self.categories.all()
