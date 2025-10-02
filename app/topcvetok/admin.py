@@ -1,6 +1,51 @@
 from django.contrib import admin
+from django import forms
 
 from topcvetok import models
+
+
+# Форма для инлайна вариаций (вынесена на модульный уровень)
+class ProductVariantInlineForm(forms.ModelForm):
+    variant_attribute = forms.ModelChoiceField(
+        queryset=models.Attribute.objects.all(),
+        required=False,
+        label='Атрибут вариации',
+        widget=forms.Select(attrs={'style': 'min-width: 480px'})
+    )
+
+    class Meta:
+        model = models.ProductVariant
+        fields = ['price', 'promotional_price', 'is_available']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = getattr(self, 'instance', None)
+        if instance and instance.pk:
+            va = instance.variant_attributes.select_related('attribute').first()
+            if va and va.attribute_id:
+                self.fields['variant_attribute'].initial = va.attribute
+        # Показываем “Имя Значение”, например “Длина 50 см”
+        self.fields['variant_attribute'].label_from_instance = (
+            lambda obj: f"{obj.name} {obj.value}".strip()
+        )
+
+    def save(self, commit=True):
+        instance = super().save(commit)
+        attr = self.cleaned_data.get('variant_attribute')
+        if instance and instance.pk:
+            if attr:
+                # Обеспечиваем ровно один атрибут: создаем выбранный и удаляем остальные
+                models.ProductVariantAttribute.objects.get_or_create(
+                    variant=instance,
+                    attribute=attr
+                )
+                models.ProductVariantAttribute.objects.filter(
+                    variant=instance
+                ).exclude(attribute=attr).delete()
+            else:
+                # Если ничего не выбрано — очищаем связи
+                models.ProductVariantAttribute.objects.filter(variant=instance).delete()
+        return instance
 
 
 @admin.register(models.Account)
@@ -59,8 +104,19 @@ class ProductAdmin(admin.ModelAdmin):
     # Вариации товара инлайном
     class ProductVariantInline(admin.TabularInline):
         model = models.ProductVariant
+        form = ProductVariantInlineForm
         extra = 0
-        fields = ['price', 'promotional_price', 'is_available']
+        fields = ['variation_display', 'variant_attribute', 'price', 'promotional_price', 'is_available']
+        readonly_fields = ['variation_display']
+        show_change_link = True
+
+        def variation_display(self, obj):
+            items = []
+            for va in obj.variant_attributes.select_related('attribute').all():
+                if va.attribute:
+                    items.append(f"{va.attribute.name} {va.attribute.value}")
+            return ", ".join(items) if items else "—"
+        variation_display.short_description = 'Атрибуты вариации'
 
     inlines = [ProductVariantInline]
 
