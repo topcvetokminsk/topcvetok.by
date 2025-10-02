@@ -106,8 +106,7 @@ class ProductAdmin(admin.ModelAdmin):
         model = models.ProductVariant
         form = ProductVariantInlineForm
         extra = 0
-        fields = ['variation_display', 'variant_attribute', 'price', 'promotional_price', 'is_available']
-        readonly_fields = ['variation_display']
+        fields = ['variant_attribute', 'price', 'promotional_price', 'is_available']
         show_change_link = True
 
         def variation_display(self, obj):
