@@ -10,6 +10,7 @@ from PIL import Image
 
 from topcvetok.models import (
     Category, Attribute, Product, ProductAttribute,
+    ProductVariant, ProductVariantAttribute,
     Service, DeliveryMethod, PaymentMethod
 )
 
@@ -78,8 +79,8 @@ class Command(BaseCommand):
                 # 3. Загружаем товары из CSV (основные товары)
                 self.load_products_from_csv(csv_data)
                 
-                # 4. Загружаем вариации из CSV
-                self.load_variations_from_csv(csv_data)
+                # 4. Загружаем вариации из CSV как ProductVariant
+                self.load_variants_from_csv(csv_data)
                 
                 self.stdout.write(
                     self.style.SUCCESS('Загрузка товаров завершена успешно!')
@@ -96,9 +97,13 @@ class Command(BaseCommand):
         self.stdout.write('Очистка таблиц товаров...')
         
         # Очищаем в правильном порядке (сначала связи, потом основные таблицы)
+        ProductVariantAttribute.objects.all().delete()
+        self.stdout.write('  - Очищены связи вариация-атрибут')
         ProductAttribute.objects.all().delete()
         self.stdout.write('  - Очищены связи товар-атрибут')
         
+        ProductVariant.objects.all().delete()
+        self.stdout.write('  - Очищены вариации')
         Product.objects.all().delete()
         self.stdout.write('  - Очищены товары')
         
@@ -334,27 +339,41 @@ class Command(BaseCommand):
         
         self.stdout.write(f'Создано {products_created} основных товаров')
 
-    def load_variations_from_csv(self, csv_data):
-        """Загружает вариации товаров из CSV"""
-        self.stdout.write('Загрузка вариаций товаров из CSV...')
+    def load_variants_from_csv(self, csv_data):
+        """Загружает вариации (ProductVariant) из CSV"""
+        self.stdout.write('Загрузка вариаций (ProductVariant) из CSV...')
         
-        variations_created = 0
+        variants_created = 0
         
         for product_id, csv_item in csv_data.items():
             if csv_item.get('type') == 'variation':
                 try:
-                    # Создаем товар-вариацию
-                    product = self.create_variation_product(csv_item)
-                    if product:
-                        variations_created += 1
-                        if variations_created % 50 == 0:
-                            self.stdout.write(f'Создано {variations_created} вариаций...')
+                    # Ищем родительский товар по данным CSV
+                    parent_product = None
+                    parent_woo_id = csv_item.get('parent_id')
+                    if parent_woo_id:
+                        parent_csv_item = csv_data.get(parent_woo_id)
+                        if parent_csv_item and parent_csv_item.get('name'):
+                            parent_slug = self.create_slug(parent_csv_item['name'])
+                            parent_product = Product.objects.filter(slug=parent_slug).first()
+                    
+                    # Создаем вариацию
+                    variant = self.create_product_variant(csv_item, parent_product=parent_product)
+                    
+                    # Добавляем атрибуты вариации, если указаны
+                    if variant and csv_item.get('attributes'):
+                        self.add_csv_attributes_to_variant(variant, csv_item['attributes'])
+                    
+                    if variant:
+                        variants_created += 1
+                        if variants_created % 50 == 0:
+                            self.stdout.write(f'Создано {variants_created} вариаций...')
                             
                 except Exception as e:
                     self.stdout.write(f'Ошибка при создании вариации {csv_item["name"]}: {e}')
                     continue
         
-        self.stdout.write(f'Создано {variations_created} вариаций товаров')
+        self.stdout.write(f'Создано {variants_created} вариаций товаров')
 
     def create_product_from_csv(self, csv_item):
         """Создает основной товар из CSV данных"""
@@ -419,12 +438,9 @@ class Command(BaseCommand):
             self.stdout.write(f'Ошибка при создании товара: {e}')
             return None
 
-    def create_variation_product(self, csv_item):
-        """Создает товар-вариацию из CSV данных"""
+    def create_product_variant(self, csv_item, parent_product=None):
+        """Создает ProductVariant из CSV данных"""
         try:
-            # Создаем slug для вариации
-            slug = self.create_slug(csv_item['name'])
-            
             # Получаем цену
             price = Decimal('0.00')
             if csv_item.get('price'):
@@ -441,41 +457,33 @@ class Command(BaseCommand):
                 except (ValueError, TypeError):
                     promo_price = None
             
-            # Создаем товар
-            product, created = Product.objects.get_or_create(
-                slug=slug,
-                defaults={
-                    'name': csv_item['name'],
-                    'description': csv_item.get('description', ''),
-                    'price': price,
-                    'promotional_price': promo_price,
-                    'is_available': True,
-                    'is_popular': False,
-                    'photo': '',  # У вариаций обычно нет отдельного изображения
-                    'meta_title': csv_item['name'],
-                    'meta_description': f'Купить {csv_item["name"]} в интернет-магазине TopCvetok'
-                }
+            # Определяем родителя
+            if not parent_product:
+                base_name = re.sub(r"\s*-\s*\d+\s*(см|мм)$", "", csv_item['name'], flags=re.IGNORECASE).strip()
+                if base_name:
+                    base_slug = self.create_slug(base_name)
+                    parent_product = Product.objects.filter(slug=base_slug).first()
+            if not parent_product:
+                return None
+            
+            variant = ProductVariant.objects.create(
+                product=parent_product,
+                price=price,
+                promotional_price=promo_price,
+                is_available=True
             )
             
-            if created:
-                # Скачиваем изображение если есть
-                if self.download_images and csv_item.get('image_url'):
-                    image_path = self.download_product_image(csv_item, {'title': csv_item['name']})
-                    if image_path:
-                        product.photo = image_path
-                        product.save()
-                
-                # Добавляем категории если есть
-                if csv_item.get('category'):
-                    # Разбиваем категории по запятым
-                    category_list = [cat.strip() for cat in csv_item['category'].split(',')]
-                    categories = self.get_or_create_categories(category_list)
-                    product.categories.set(categories)
+            # Фото вариации при наличии
+            if self.download_images and csv_item.get('image_url'):
+                image_path = self.download_product_image(csv_item, {'title': csv_item['name']})
+                if image_path:
+                    variant.photo = image_path
+                    variant.save(update_fields=['photo'])
             
-            return product
+            return variant
             
         except Exception as e:
-            self.stdout.write(f'Ошибка при создании товара-вариации: {e}')
+            self.stdout.write(f'Ошибка при создании вариации: {e}')
             return None
 
 
@@ -629,44 +637,39 @@ class Command(BaseCommand):
                             product=product,
                             attribute=attribute
                         )
+            except Exception as e:
+                self.stdout.write(f'Ошибка при добавлении атрибута {attr_data}: {e}')
+                continue
+    def add_csv_attributes_to_variant(self, variant, attributes_data):
+        """Добавляет атрибуты к вариации из CSV данных"""
+        for attr_data in attributes_data:
+            try:
+                attribute_name = attr_data['name']
+                attribute_values = attr_data['values']
+                
+                values = [v.strip() for v in attribute_values.split(',')]
+                for value in values:
+                    if value:
+                        attribute, _ = Attribute.objects.get_or_create(
+                            name=attribute_name,
+                            value=value,
+                            defaults={'is_active': True}
+                        )
+                        ProductVariantAttribute.objects.get_or_create(
+                            variant=variant,
+                            attribute=attribute
+                        )
+            except Exception as e:
+                self.stdout.write(f'Ошибка при добавлении атрибута вариации {attr_data}: {e}')
+                continue
                         
             except Exception as e:
                 self.stdout.write(f'Ошибка при добавлении атрибута {attr_data}: {e}')
                 continue
 
-    def add_attributes_to_product(self, product, attributes_data):
-        """Добавляет атрибуты к товару"""
-        for attr_data in attributes_data:
-            try:
-                attribute_type = attr_data['domain'].replace('pa_', '')
-                value = attr_data['value']
-                
-                attribute, created = Attribute.objects.get_or_create(
-                    name=attribute_type,
-                    value=value,
-                    defaults={
-                        'is_active': True
-                    }
-                )
-                
-                product.add_attribute(attribute)
-                
-            except Exception as e:
-                continue
+    # Удалено: устаревший импорт формата из другого источника (WC API)
 
-    def extract_price(self, meta_data):
-        """Извлекает цену из мета-данных"""
-        price_keys = ['_regular_price', '_price', '_sale_price']
-        
-        for key in price_keys:
-            if key in meta_data and meta_data[key]:
-                try:
-                    price_str = meta_data[key].replace(',', '.')
-                    return Decimal(price_str)
-                except (ValueError, TypeError):
-                    continue
-        
-        return None
+    # Удалено: устаревший парсер цены из WC meta
 
     def create_slug(self, text):
         """Создает slug из текста с транслитерацией"""
@@ -703,29 +706,7 @@ class Command(BaseCommand):
         
         return result
 
-    def get_color_hex(self, color_name):
-        """Возвращает HEX код для цвета"""
-        color_map = {
-            'красные': '#FF0000',
-            'белые': '#FFFFFF',
-            'розовые': '#FFC0CB',
-            'желтые': '#FFFF00',
-            'синие': '#0000FF',
-            'зеленые': '#00FF00',
-            'кремовые': '#F5F5DC',
-            'малиновые': '#DC143C',
-            'персиковые': '#FFCCCB',
-            'микс': '#FFD700',
-            'радужные': '#FFD700',
-            'медовые': '#DAA520',
-            'нежно-розовые': '#FFC0CB',
-            'светло-розовые': '#FFB6C1',
-            'бело-розовые': '#FFB6C1',
-            'красно-розовые': '#FF1493',
-            'бабл гам': '#FF69B4',
-        }
-        
-        return color_map.get(color_name.lower(), None)
+    # Удалено: справочник цветов HEX (не используется)
 
     def clean_html(self, text):
         """Очищает HTML теги из текста"""

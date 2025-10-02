@@ -1,7 +1,7 @@
 from rest_framework import serializers
-from django.core.cache import cache
+from django.db.models import Q
+import re
 from topcvetok import models
-from topcvetok.constants import SIZE_INDICATORS
 
 
 class LoginSerializer(serializers.ModelSerializer):
@@ -48,69 +48,67 @@ class ProductAttributeSerializer(serializers.ModelSerializer):
         fields = ["id", "attribute"]
 
 
+ 
+
+
 class ProductSerializer(serializers.ModelSerializer):
     """Сериализатор для продуктов с атрибутами"""
-    # Основная категория (для обратной совместимости)
-    # Все категории
     categories = serializers.SerializerMethodField()
-    
-    attributes = ProductAttributeSerializer(source='product_attributes', many=True, read_only=True)
-    
-    # Группированные атрибуты для удобства фронтенда
-    #attributes_by_type = serializers.SerializerMethodField()
-    
-    # Поля для определения типа товара
+    attributes = serializers.SerializerMethodField()
     is_main_product = serializers.SerializerMethodField()
     variations = serializers.SerializerMethodField()
-    #available_sizes = serializers.SerializerMethodField()
     
     def get_is_main_product(self, obj):
-        """Определяет, является ли товар основным (не вариацией)"""
-        # Товар считается основным, если у него есть атрибут 'variation' с размерами
-        has_variation_attr = obj.product_attributes.filter(
-            attribute__name__in=['variation', 'вариация']
-        ).exists()
-        
-        # Или если в названии нет размера (для товаров без атрибутов)
-        has_size_in_name = any(size in obj.name for size in SIZE_INDICATORS)
-        
-        return has_variation_attr or not has_size_in_name
+        """Теперь все записи в этом сериализаторе — корневые товары."""
+        return True
     
     def get_variations(self, obj):
-        """Возвращает вариации этого товара в требуемом формате"""
-        if not self.get_is_main_product(obj):
-            return []
-        
-        # Ищем товары с тем же базовым названием, но с размерами
-        base_name = self.get_base_name(obj)
-        variations = models.Product.objects.filter(
-            name__startswith=base_name
-        ).exclude(id=obj.id).exclude(name=base_name)
+        """Возвращает вариации через self-FK.
 
-        def extract_variation_value(product):
-            # Пытаемся взять значение из атрибута 'variation'/'вариация'
-            var_attr = product.product_attributes.select_related('attribute').filter(
-                attribute__name__in=['variation', 'вариация']
+        Для основного товара (parent is None) — его дети.
+        Для варианта — его братья (другие дети того же родителя).
+        """
+        qs = obj.variants.filter(is_available=True)
+
+        def extract_variation_value(variant):
+            # 1) Ищем атрибут вариации у варианта
+            var_attr = variant.variant_attributes.select_related('attribute').filter(
+                Q(attribute__name__iexact='variation') | Q(attribute__name__iexact='вариация')
             ).first()
             if var_attr and var_attr.attribute:
                 return var_attr.attribute.name, var_attr.attribute.value
-            # Фолбэк: вытаскиваем размер из имени
-            for size in SIZE_INDICATORS:
-                if size in product.name:
-                    return 'variation', size
+            # 2) Фолбэк: у родителя могли остаться атрибуты вариаций
+            parent_var = obj.product_attributes.select_related('attribute').filter(
+                Q(attribute__name__iexact='variation') | Q(attribute__name__iexact='вариация')
+            ).first()
+            if parent_var and parent_var.attribute:
+                return parent_var.attribute.name, parent_var.attribute.value
+            # 3) Фолбэк по названию
+            match = re.search(r"-\s*(\d+\s*(см|мм))", obj.name, re.IGNORECASE)
+            if match:
+                return 'Вариация', match.group(1)
             return 'variation', ''
 
         result = []
-        for v in variations:
+        for v in qs:
             var_name, var_value = extract_variation_value(v)
             result.append({
                 'id': v.id,
                 'name': var_name,
                 'value': var_value,
-                'price': float(v.price),
+                'price': float(v.promotional_price if v.promotional_price is not None else v.price),
                 'promotional_price': float(v.promotional_price) if v.promotional_price else 0.0,
             })
         return result
+
+    def get_attributes(self, obj):
+        """Возвращает атрибуты продукта без вариативных значений (не дублируем variations)."""
+        qs = obj.product_attributes.select_related('attribute').exclude(
+            attribute__name__iexact='variation'
+        ).exclude(
+            attribute__name__iexact='вариация'
+        )
+        return ProductAttributeSerializer(qs, many=True, context=self.context).data
     
 #    def get_available_sizes(self, obj):
 #        """Возвращает доступные размеры для основного товара"""
@@ -138,14 +136,7 @@ class ProductSerializer(serializers.ModelSerializer):
         
 #        return sorted(list(set(sizes)))
 
-    def get_base_name(self, obj):
-        """Возвращает базовое название товара без размера"""
-        name = obj.name
-        # Убираем размеры из названия
-        size_indicators = ['40 см', '50 см', '60 см', '70 см', '80 см', '90 см', '100 см']
-        for size in size_indicators:
-            name = name.replace(f' - {size}', '').replace(f' {size}', '')
-        return name.strip()
+    # Больше не требуется логика с base_name/эвристиками по имени
     
     def get_attributes_by_type(self, obj):
         """Группирует атрибуты по типам для удобства фильтрации"""
@@ -168,15 +159,15 @@ class ProductSerializer(serializers.ModelSerializer):
         return attributes_by_type
     
     def get_categories(self, obj):
-        """Возвращает все категории продукта"""
-        categories = obj.get_all_categories()
+        """Возвращает категории продукта (вариации их не имеют)."""
+        categories_qs = obj.get_all_categories()
         return [
             {
                 'id': cat.id,
                 'name': cat.name,
                 'slug': cat.slug,
             }
-            for cat in categories
+            for cat in categories_qs
         ]
     
     class Meta:
@@ -247,33 +238,39 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 class OrderItemCreateSerializer(serializers.Serializer):
-    """Сериализатор для товара в заказе"""
+    """Сериализатор позиции заказа"""
     product_id = serializers.CharField()
+    variant_id = serializers.CharField(required=False, allow_null=True)
     quantity = serializers.IntegerField(min_value=1)
     attribute_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
         allow_empty=True
     )
-    
+
     def validate_product_id(self, value):
-        """Проверяем, что продукт существует и доступен"""
         try:
-            product = models.Product.objects.get(id=value, is_available=True)
+            models.Product.objects.get(id=value, is_available=True)
             return value
         except models.Product.DoesNotExist:
             raise serializers.ValidationError("Продукт не найден или недоступен")
-    
+
+    def validate_variant_id(self, value):
+        if value in (None, ""):
+            return value
+        try:
+            models.ProductVariant.objects.get(id=value, is_available=True)
+            return value
+        except models.ProductVariant.DoesNotExist:
+            raise serializers.ValidationError("Вариация не найдена или недоступна")
+
     def validate_attribute_ids(self, value):
-        """Проверяем, что атрибуты существуют"""
         if value:
             existing_attrs = models.Attribute.objects.filter(
                 id__in=value, is_active=True
             ).values_list('id', flat=True)
-            
             if len(existing_attrs) != len(value):
                 raise serializers.ValidationError("Некоторые атрибуты не найдены")
-        
         return value
 
 

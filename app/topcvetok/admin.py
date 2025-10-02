@@ -56,6 +56,14 @@ class ProductAdmin(admin.ModelAdmin):
     readonly_fields = ['id', 'created_at', 'updated_at']
     filter_horizontal = ['categories']
 
+    # Вариации товара инлайном
+    class ProductVariantInline(admin.TabularInline):
+        model = models.ProductVariant
+        extra = 0
+        fields = ['price', 'promotional_price', 'is_available']
+
+    inlines = [ProductVariantInline]
+
     def categories_display(self, obj):
         return ", ".join([cat.name for cat in obj.categories.all()[:3]])
     categories_display.short_description = "Категории"
@@ -75,6 +83,29 @@ class ServiceAdmin(admin.ModelAdmin):
     def is_free_display(self, obj):
         return "Да" if obj.is_free else "Нет"
     is_free_display.short_description = "Бесплатная"
+
+
+# Админ для вариаций и их атрибутов
+class ProductVariantAttributeInline(admin.TabularInline):
+    model = models.ProductVariantAttribute
+    extra = 0
+    autocomplete_fields = ['attribute']
+
+
+@admin.register(models.ProductVariant)
+class ProductVariantAdmin(admin.ModelAdmin):
+    list_display = ['id', 'product', 'price', 'promotional_price', 'is_available', 'created_at']
+    search_fields = ['id', 'product__name']
+    list_filter = ['is_available', 'created_at', 'product']
+    readonly_fields = ['id', 'created_at', 'updated_at']
+    inlines = [ProductVariantAttributeInline]
+
+
+@admin.register(models.ProductVariantAttribute)
+class ProductVariantAttributeAdmin(admin.ModelAdmin):
+    list_display = ['id', 'variant', 'attribute']
+    search_fields = ['id', 'variant__product__name', 'attribute__name', 'attribute__value']
+    readonly_fields = ['id']
 
 
 @admin.register(models.Order)

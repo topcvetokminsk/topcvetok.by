@@ -319,10 +319,12 @@ class ProductViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
     parser_classes = (parsers.MultiPartParser, JSONParser)
     
     def get_queryset(self):
-        """Оптимизированный queryset с prefetch_related"""
-        return models.Product.objects.select_related().prefetch_related(
+        """Оптимизированный queryset: подгружаем вариации и их атрибуты"""
+        return models.Product.objects.prefetch_related(
             'categories',
-            'product_attributes__attribute'
+            'product_attributes__attribute',
+            'variants',
+            'variants__variant_attributes__attribute'
         ).filter(is_available=True)
     
     # permissions handled by mixin
@@ -484,8 +486,9 @@ class DeliveryMethodViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet)
                             "type": "object",
                             "properties": {
                                 "product_id": {"type": "string", "description": "ID товара"},
+                                "variant_id": {"type": "string", "nullable": True, "description": "ID вариации (если выбран размер/вариант)"},
                                 "quantity": {"type": "integer", "description": "Количество"},
-                                "attribute_ids": {"type": "array", "items": {"type": "string"}, "description": "ID выбранных атрибутов"}
+                                "attribute_ids": {"type": "array", "items": {"type": "string"}, "description": "ID выбранных атрибутов (опционально)"}
                             }
                         }
                     },
@@ -527,6 +530,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             'delivery_method', 'payment_method', 'service'
         ).prefetch_related(
             'items__product',
+            'items__variant',
             'items__attributes',
             'items__service'
         ).order_by('-created_at')
@@ -571,19 +575,20 @@ class OrderViewSet(viewsets.ModelViewSet):
             total_amount = 0
             for item_data in order_data['items']:
                 product = models.Product.objects.get(id=item_data['product_id'])
-                
-                # Рассчитываем цену с учетом атрибутов
-                price = product.price
-                if item_data.get('attribute_ids'):
-                    attributes = models.Attribute.objects.filter(
-                        id__in=item_data['attribute_ids']
-                    )
-                    price = product.get_price_with_attributes(attributes)
+                variant_id = item_data.get('variant_id')
+                variant = None
+                # Цена берется из вариации если указана, иначе из продукта
+                if variant_id:
+                    variant = models.ProductVariant.objects.get(id=variant_id, product=product, is_available=True)
+                    price = variant.promotional_price if variant.promotional_price is not None else variant.price
+                else:
+                    price = product.promotional_price if product.promotional_price is not None else product.price
                 
                 # Создаем позицию заказа
                 order_item = models.OrderItem.objects.create(
                     order=order,
                     product=product,
+                    variant=variant,
                     quantity=item_data['quantity'],
                     price=price,
                     item_name=product.name,
@@ -592,6 +597,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                 
                 # Добавляем атрибуты если есть
                 if item_data.get('attribute_ids'):
+                    attributes = models.Attribute.objects.filter(
+                        id__in=item_data['attribute_ids']
+                    )
                     order_item.attributes.set(attributes)
                 
                 total_amount += price * item_data['quantity']
@@ -664,16 +672,15 @@ class ReviewViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
 @extend_schema_view(
     post=extend_schema(
         summary="Рассчитать цену товара",
-        description="Рассчитывает итоговую цену товара с учетом выбранных атрибутов. "
-                   "Показывает базовую цену, модификаторы от атрибутов и итоговую стоимость. "
-                   "Полезно для предварительного расчета стоимости заказа.",
+        description="Рассчитывает итоговую цену товара/вариации. "
+                   "Если указан variant_id, берется цена вариации.",
         tags=["Товары"],
         request={
             "application/json": {
                 "type": "object",
                 "properties": {
                     "product_id": {"type": "string", "description": "ID товара для расчета цены"},
-                    "attribute_ids": {"type": "array", "items": {"type": "string"}, "description": "ID выбранных атрибутов"}
+                    "variant_id": {"type": "string", "nullable": True, "description": "ID вариации (если выбран размер/вариант)"}
                 },
                 "required": ["product_id"]
             }
@@ -686,10 +693,9 @@ class ReviewViewSet(PublicActionPermissionsMixin, viewsets.ModelViewSet):
                         "type": "object",
                         "properties": {
                             "product_id": {"type": "string"},
-                            "base_price": {"type": "number", "description": "Базовая цена товара"},
-                            "final_price": {"type": "number", "description": "Итоговая цена с атрибутами"},
-                            "modifiers": {"type": "array", "items": {"type": "number"}, "description": "Модификаторы от атрибутов"},
-                            "total_modifier": {"type": "number", "description": "Общий модификатор"}
+                            "variant_id": {"type": "string", "nullable": True},
+                            "base_price": {"type": "number", "description": "Базовая цена"},
+                            "final_price": {"type": "number", "description": "Итоговая цена"}
                         }
                     }
                 }
@@ -702,43 +708,34 @@ class CalculatePriceView(APIView):
     permission_classes = (AllowAny,)
     
     def post(self, request):
-        """Рассчитывает цену продукта с учетом атрибутов"""
+        """Рассчитывает цену товара/вариации"""
         product_id = request.data.get('product_id')
-        attribute_ids = request.data.get('attribute_ids', [])
+        variant_id = request.data.get('variant_id')
         
         if not product_id:
-            return Response(
-                {"error": "Не указан ID продукта"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Не указан ID продукта"}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             product = models.Product.objects.get(id=product_id, is_available=True)
         except models.Product.DoesNotExist:
-            return Response(
-                {"error": "Продукт не найден"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Продукт не найден"}, status=status.HTTP_404_NOT_FOUND)
         
-        # Получаем атрибуты если указаны
-        attributes = []
-        if attribute_ids:
-            attributes = models.Attribute.objects.filter(
-                id__in=attribute_ids, is_active=True
-            )
+        base_price = product.promotional_price if product.promotional_price is not None else product.price
+        final_price = base_price
         
-        # Рассчитываем цену
-        if attributes:
-            final_price = product.get_price_with_attributes(attributes)
-        else:
-            final_price = product.price
+        if variant_id:
+            try:
+                variant = models.ProductVariant.objects.get(id=variant_id, product=product, is_available=True)
+                final_price = variant.promotional_price if variant.promotional_price is not None else variant.price
+                base_price = final_price
+            except models.ProductVariant.DoesNotExist:
+                return Response({"error": "Вариация не найдена"}, status=status.HTTP_404_NOT_FOUND)
         
         return Response({
             'product_id': product.id,
-            'base_price': float(product.price),
+            'variant_id': variant_id,
+            'base_price': float(base_price),
             'final_price': float(final_price),
-            'modifiers': [],
-            'total_modifier': 0
         })
 
 

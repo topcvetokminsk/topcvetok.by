@@ -1,7 +1,6 @@
 import django_filters
 from django.db.models import Q
 from . import models
-from .constants import SIZE_INDICATORS
 
 
 class ProductFilter(django_filters.FilterSet):
@@ -11,8 +10,8 @@ class ProductFilter(django_filters.FilterSet):
     name = django_filters.CharFilter(field_name='name', lookup_expr='icontains')
     category = django_filters.CharFilter(method='filter_by_category')
     categories = django_filters.CharFilter(method='filter_by_categories')
-    price_min = django_filters.NumberFilter(field_name='price', lookup_expr='gte')
-    price_max = django_filters.NumberFilter(field_name='price', lookup_expr='lte')
+    price_min = django_filters.NumberFilter(method='filter_price_min')
+    price_max = django_filters.NumberFilter(method='filter_price_max')
     is_available = django_filters.BooleanFilter(field_name='is_available')
     is_popular = django_filters.BooleanFilter(field_name='is_popular')
     
@@ -27,10 +26,19 @@ class ProductFilter(django_filters.FilterSet):
     
     # Фильтр для основных товаров (без вариаций)
     main_products_only = django_filters.BooleanFilter(method='filter_main_products_only')
+
+    # Флаг: учитывать совпадения только у родительских товаров (под ProductVariant переосмыслен)
+    parent_matches_only = django_filters.BooleanFilter(method='filter_parent_matches_only')
     
     class Meta:
         model = models.Product
-        fields = ['name', 'categories', 'price_min', 'price_max', 'is_available', 'is_popular', 'color', 'quantity', 'variation', 'price_range', 'attributes']
+        fields = ['name', 'categories', 'price_min', 'price_max', 'is_available', 'is_popular', 'color', 'quantity', 'variation', 'price_range', 'attributes', 'parent_matches_only']
+
+    def _is_parent_matches_only(self):
+        value = self.data.get('parent_matches_only')
+        if value in [True, 'true', 'True', '1', 1, 'yes', 'on']:
+            return True
+        return False
     
     def filter_by_color(self, queryset, name, value):
         """Фильтр по цвету"""
@@ -44,7 +52,15 @@ class ProductFilter(django_filters.FilterSet):
         )
         
         if color_values.exists():
-            return queryset.filter(product_attributes__attribute__in=color_values)
+            if self._is_parent_matches_only():
+                return queryset.filter(
+                    product_attributes__attribute__in=color_values
+                ).distinct()
+            else:
+                return queryset.filter(
+                    Q(product_attributes__attribute__in=color_values) |
+                    Q(variants__variant_attributes__attribute__in=color_values)
+                ).distinct()
         return queryset.none()
     
     def filter_by_quantity(self, queryset, name, value):
@@ -59,7 +75,15 @@ class ProductFilter(django_filters.FilterSet):
         )
         
         if quantity_values.exists():
-            return queryset.filter(product_attributes__attribute__in=quantity_values)
+            if self._is_parent_matches_only():
+                return queryset.filter(
+                    product_attributes__attribute__in=quantity_values
+                ).distinct()
+            else:
+                return queryset.filter(
+                    Q(product_attributes__attribute__in=quantity_values) |
+                    Q(variants__variant_attributes__attribute__in=quantity_values)
+                ).distinct()
         return queryset.none()
     
     def filter_by_price_range(self, queryset, name, value):
@@ -73,14 +97,39 @@ class ProductFilter(django_filters.FilterSet):
                 min_price, max_price = value.split('-', 1)
                 min_price = float(min_price.strip())
                 max_price = float(max_price.strip())
-                return queryset.filter(price__gte=min_price, price__lte=max_price)
+                if self._is_parent_matches_only():
+                    return queryset.filter(
+                        price__gte=min_price,
+                        price__lte=max_price
+                    ).distinct()
+                else:
+                    return queryset.filter(
+                        Q(price__gte=min_price, price__lte=max_price) |
+                        Q(variants__price__gte=min_price, variants__price__lte=max_price)
+                    ).distinct()
             elif value.endswith('+'):
                 min_price = float(value[:-1].strip())
-                return queryset.filter(price__gte=min_price)
+                if self._is_parent_matches_only():
+                    return queryset.filter(
+                        price__gte=min_price
+                    ).distinct()
+                else:
+                    return queryset.filter(
+                        Q(price__gte=min_price) |
+                        Q(variants__price__gte=min_price)
+                    ).distinct()
             else:
                 # Точное значение
                 exact_price = float(value.strip())
-                return queryset.filter(price=exact_price)
+                if self._is_parent_matches_only():
+                    return queryset.filter(
+                        price=exact_price
+                    ).distinct()
+                else:
+                    return queryset.filter(
+                        Q(price=exact_price) |
+                        Q(variants__price=exact_price)
+                    ).distinct()
         except (ValueError, AttributeError):
             return queryset.none()
     
@@ -89,7 +138,14 @@ class ProductFilter(django_filters.FilterSet):
         if not value:
             return queryset
         
-        return queryset.filter(categories__slug=value).distinct()
+        if self._is_parent_matches_only():
+            return queryset.filter(
+                categories__slug=value
+            ).distinct()
+        else:
+            return queryset.filter(
+                Q(categories__slug=value)
+            ).distinct()
     
     # Удалено: иерархии категорий больше нет
     
@@ -99,7 +155,14 @@ class ProductFilter(django_filters.FilterSet):
             return queryset
         
         category_slugs = [slug.strip() for slug in value.split(',')]
-        return queryset.filter(categories__slug__in=category_slugs).distinct()
+        if self._is_parent_matches_only():
+            return queryset.filter(
+                categories__slug__in=category_slugs
+            ).distinct()
+        else:
+            return queryset.filter(
+                Q(categories__slug__in=category_slugs)
+            ).distinct()
     
     def filter_by_attributes(self, queryset, name, value):
         """Универсальный фильтр по атрибутам
@@ -120,8 +183,11 @@ class ProductFilter(django_filters.FilterSet):
                     Q(value__icontains=attr_value.strip())
                 )
                 if attr_values.exists():
-                    conditions |= Q(product_attributes__attribute__in=attr_values)
-            return queryset.filter(conditions)
+                    if self._is_parent_matches_only():
+                        conditions |= Q(product_attributes__attribute__in=attr_values)
+                    else:
+                        conditions |= Q(product_attributes__attribute__in=attr_values) | Q(variants__variant_attributes__attribute__in=attr_values)
+            return queryset.filter(conditions).distinct()
         else:
             # И - все атрибуты должны совпадать
             for attr_value in value.split(','):
@@ -129,10 +195,18 @@ class ProductFilter(django_filters.FilterSet):
                     Q(value__icontains=attr_value.strip())
                 )
                 if attr_values.exists():
-                    queryset = queryset.filter(product_attributes__attribute__in=attr_values)
+                    if self._is_parent_matches_only():
+                        queryset = queryset.filter(
+                            product_attributes__attribute__in=attr_values
+                        )
+                    else:
+                        queryset = queryset.filter(
+                            Q(product_attributes__attribute__in=attr_values) |
+                            Q(variants__variant_attributes__attribute__in=attr_values)
+                        )
                 else:
                     return queryset.none()
-            return queryset
+            return queryset.distinct()
 
     def filter_by_variation(self, queryset, name, value):
         """Фильтр по вариациям (например: длина стебля 40 см, 50 см и т.д.)"""
@@ -144,22 +218,47 @@ class ProductFilter(django_filters.FilterSet):
             Q(value__icontains=value)
         )
         if variation_values.exists():
-            return queryset.filter(product_attributes__attribute__in=variation_values)
+            if self._is_parent_matches_only():
+                return queryset.filter(
+                    product_attributes__attribute__in=variation_values
+                ).distinct()
+            else:
+                return queryset.filter(
+                    Q(product_attributes__attribute__in=variation_values) |
+                    Q(variants__variant_attributes__attribute__in=variation_values)
+                ).distinct()
         return queryset.none()
 
     def filter_main_products_only(self, queryset, name, value):
-        """Фильтр для показа только основных товаров (без вариаций)"""
+        """Фильтр для показа только основных товаров (без вариаций) через parent IS NULL"""
         if value:
-            # Исключаем товары с размерами в названии
-            for size in SIZE_INDICATORS:
-                queryset = queryset.exclude(name__icontains=size)
-            
-            # Также исключаем товары, которые являются вариациями и имеют размер в названии
-            queryset = queryset.exclude(
-                name__icontains='см',
-                product_attributes__attribute__name__in=['variation', 'вариация']
-            ).distinct()
+            return queryset.distinct()
         return queryset
+
+    def filter_price_min(self, queryset, name, value):
+        if value is None:
+            return queryset
+        if self._is_parent_matches_only():
+            return queryset.filter(price__gte=value).distinct()
+        return queryset.filter(Q(price__gte=value) | Q(variants__price__gte=value)).distinct()
+
+    def filter_price_max(self, queryset, name, value):
+        if value is None:
+            return queryset
+        if self._is_parent_matches_only():
+            return queryset.filter(price__lte=value).distinct()
+        return queryset.filter(Q(price__lte=value) | Q(variants__price__lte=value)).distinct()
+
+    def filter_parent_matches_only(self, queryset, name, value):
+        # Ничего не делаем здесь. Ограничение по parent применяется в других методах и в qs
+        return queryset
+
+    @property
+    def qs(self):
+        qs = super().qs
+        if self._is_parent_matches_only():
+            return qs.distinct()
+        return qs
 
 
 class AttributeFilter(django_filters.FilterSet):
